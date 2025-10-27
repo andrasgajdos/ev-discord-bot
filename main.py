@@ -28,60 +28,13 @@ def mark_sent(key):
 
 # ---------- book feeds ----------
 def gamdom_feed():
-    url = "https://gamdom.com/sports/data/matches"
-    print("🔍 fetching GAMDOM…")
-    try:
-        resp = requests.get(url, timeout=5)
-        resp.raise_for_status()
-        data = resp.json()
-        print("📥 GAMDOM raw payload:", data)
-    except Exception as e:
-        print("❌ GAMDOM error:", e)
-        data = []
-    # (rest of your parsing loop stays identical)
-    odds = []
-    for sport in data:
-        for league in sport.get("leagues", []):
-            for match in league.get("matches", []):
-                for market in match.get("markets", []):
-                    if market.get("name") not in ("1X2", "Match Winner"):
-                        continue
-                    for sel in market.get("selections", []):
-                        odds.append({
-                            "book": "gamdom",
-                            "match": f"{match['home']} vs {match['away']}",
-                            "market": market.get("name"),
-                            "outcome": sel["name"],
-                            "odd": float(sel["odds"])
-                        })
-    return odds
+    print("📥 GAMDOM dummy")
+    return [{"book":"gamdom","match":"Test v Test","market":"Match Winner","outcome":"Home","odd":2.50}]
 
 def rainbet_feed():
-    url = "https://sports-prod.circa.cloud/betby/prematch/events"
-    print("🔍 fetching RAINBET…")
-    try:
-        resp = requests.get(url, timeout=5)
-        resp.raise_for_status()
-        data = resp.json()
-        print("📥 RAINBET raw payload:", data)
-    except Exception as e:
-        print("❌ RAINBET error:", e)
-        data = []
-    odds = []
-    for event in data:
-        for market in event.get("markets", []):
-            if market.get("name") not in ("1X2", "Match Winner"):
-                continue
-            for outcome in market.get("outcomes", []):
-                odds.append({
-                    "book": "rainbet",
-                    "match": event["name"],
-                    "market": market.get("name"),
-                    "outcome": outcome["name"],
-                    "odd": float(outcome["odds"])
-                })
-    return odds
-
+    print("📥 RAINBET dummy")
+    return [{"book":"rainbet","match":"Test v Test","market":"Match Winner","outcome":"Away","odd":2.60}]
+    
 def pinnacle_feed():
     url = "https://www.pinnacle.com/syndication/odds/v1/matchups"
     resp = requests.get(url, timeout=15)
