@@ -127,8 +127,3 @@ if __name__ == "__main__":
     while True:
         scan()
         time.sleep(SCAN_MINUTES * 60)
-if __name__ == "__main__":
-    send_discord("🔧 forced test — EV-bot is alive")
-    while True:
-        scan()
-        time.sleep(SCAN_MINUTES * 60)
