@@ -17,7 +17,9 @@ print = functools.partial(builtins.print, flush=True)
 load_dotenv()
 
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
-MIN_EV = 0.00        # 4% edge threshold
+print("DEBUG: DISCORD_WEBHOOK =", DISCORD_WEBHOOK)  # Check webhook
+
+MIN_EV = 0.00        # temporarily 0 to trigger dummy alert
 SCAN_MINUTES = 3
 DB_FILE = "sent.db"
 
@@ -27,8 +29,12 @@ def decimal_implied(odd):
 
 def send_discord(body):
     """Send message to Discord via webhook."""
+    if not DISCORD_WEBHOOK:
+        print("❌ No webhook set, cannot send Discord message")
+        return
     try:
-        requests.post(DISCORD_WEBHOOK, json={"content": body}, timeout=10)
+        resp = requests.post(DISCORD_WEBHOOK, json={"content": body}, timeout=10)
+        print("DEBUG: Discord response:", resp.status_code, resp.text)
     except Exception as e:
         print("❌ Discord send error:", e)
 
@@ -49,21 +55,18 @@ def mark_sent(key):
 
 # ---------- book feeds (dummy) ----------
 def gamdom_feed():
-    """Dummy Gamdom odds feed."""
     print("📥 GAMDOM dummy feed")
     return [
         {"book": "gamdom", "match": "Test v Test", "market": "Match Winner", "outcome": "Home", "odd": 2.50}
     ]
 
 def rainbet_feed():
-    """Dummy Rainbet odds feed."""
     print("📥 RAINBET dummy feed")
     return [
         {"book": "rainbet", "match": "Test v Test", "market": "Match Winner", "outcome": "Away", "odd": 2.60}
     ]
 
 def pinnacle_feed():
-    """Dummy Pinnacle sharp odds feed (free plan blocks HTTPS)."""
     print("📥 PINNACLE dummy feed (free-plan block)")
     return {
         ("Test v Test", "Home"): 2.40,
@@ -74,17 +77,15 @@ def pinnacle_feed():
 def scan():
     print("🔥 ENTERED SCAN FUNCTION")
     init_db()
-    now_utc = datetime.datetime.now(datetime.UTC)
-    print(f"[{now_utc:%Y-%m-%d %H:%M:%S}] scanning…")
+    print(f"[{datetime.datetime.utcnow():%Y-%m-%d %H:%M:%S}] scanning…")
 
     try:
         print("🔍 fetching soft odds…")
-        soft_odds = gamdom_feed() + rainbet_feed()
-
+        soft_odds  = gamdom_feed() + rainbet_feed()
         print("🔍 fetching sharp odds…")
         sharp_odds = pinnacle_feed()
         print("✅ done fetching odds")
-    except Exception:
+    except Exception as e:
         print("💥 feed crash:", traceback.format_exc())
         return
 
@@ -92,11 +93,9 @@ def scan():
         key = (row["match"], row["outcome"])
         if key not in sharp_odds:
             continue
-
-        soft_odd = row["odd"]
+        soft_odd  = row["odd"]
         sharp_odd = sharp_odds[key]
         ev = (sharp_odd / soft_odd) - 1
-
         if ev < MIN_EV:
             continue
 
@@ -109,9 +108,10 @@ def scan():
             "**{book}** {match}\n"
             "**{outcome}** {soft:.2f}  vs  Pinnacle {sharp:.2f}\n"
             "Stake 1 u → EV +{ev:.1%}"
-        ).format(ev, book=row["book"], match=row["match"],
-                 outcome=row["outcome"], soft=soft_odd, sharp=sharp_odd, ev=ev)
+        ).format(ev, book=row["book"], match=row["match"], outcome=row["outcome"],
+                 soft=soft_odd, sharp=sharp_odd, ev=ev)
 
+        print("DEBUG: would send alert:", msg)
         send_discord(msg)
         mark_sent(alert_key)
         print("🚀 sent alert:", alert_key)
@@ -125,6 +125,6 @@ if __name__ == "__main__":
             print("🔄 starting scan…")
             scan()
             print(f"😴 sleeping {SCAN_MINUTES} min…")
-        except Exception:
+        except Exception as e:
             print("💥 CRASH:", traceback.format_exc())
         time.sleep(SCAN_MINUTES * 60)
