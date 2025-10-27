@@ -74,3 +74,57 @@ def pinnacle_feed():
 def scan():
     print("🔥 ENTERED SCAN FUNCTION")
     init_db()
+    now_utc = datetime.datetime.now(datetime.UTC)
+    print(f"[{now_utc:%Y-%m-%d %H:%M:%S}] scanning…")
+
+    try:
+        print("🔍 fetching soft odds…")
+        soft_odds = gamdom_feed() + rainbet_feed()
+
+        print("🔍 fetching sharp odds…")
+        sharp_odds = pinnacle_feed()
+        print("✅ done fetching odds")
+    except Exception:
+        print("💥 feed crash:", traceback.format_exc())
+        return
+
+    for row in soft_odds:
+        key = (row["match"], row["outcome"])
+        if key not in sharp_odds:
+            continue
+
+        soft_odd = row["odd"]
+        sharp_odd = sharp_odds[key]
+        ev = (sharp_odd / soft_odd) - 1
+
+        if ev < MIN_EV:
+            continue
+
+        alert_key = f"{row['book']} {key[0]} {key[1]} {datetime.date.today()}"
+        if was_sent(alert_key):
+            continue
+
+        msg = (
+            "@everyone +EV {:.1%}\n"
+            "**{book}** {match}\n"
+            "**{outcome}** {soft:.2f}  vs  Pinnacle {sharp:.2f}\n"
+            "Stake 1 u → EV +{ev:.1%}"
+        ).format(ev, book=row["book"], match=row["match"],
+                 outcome=row["outcome"], soft=soft_odd, sharp=sharp_odd, ev=ev)
+
+        send_discord(msg)
+        mark_sent(alert_key)
+        print("🚀 sent alert:", alert_key)
+
+    print("✅ SCAN FUNCTION FINISHED")
+
+# ---------- main loop ----------
+if __name__ == "__main__":
+    while True:
+        try:
+            print("🔄 starting scan…")
+            scan()
+            print(f"😴 sleeping {SCAN_MINUTES} min…")
+        except Exception:
+            print("💥 CRASH:", traceback.format_exc())
+        time.sleep(SCAN_MINUTES * 60)
