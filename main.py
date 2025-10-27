@@ -2,7 +2,7 @@ import os, json, requests, time, datetime, sqlite3, traceback
 from statistics import median
 
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")  # we’ll add this in Render
-MIN_EV          = 0.04                          # 4 % edge threshold
+MIN_EV          = 0.00                          # 4 % edge threshold
 SCAN_MINUTES    = 3
 DB_FILE         = "sent.db"
 
