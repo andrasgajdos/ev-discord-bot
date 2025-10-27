@@ -1,5 +1,7 @@
 import os, json, requests, time, datetime, sqlite3, traceback
 from statistics import median
+from dotenv import load_dotenv
+load_dotenv()   # reads .env into os.environ
 
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")  # we’ll add this in Render
 MIN_EV          = 0.00                          # 4 % edge threshold
