@@ -5,6 +5,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          curl -X POST ${{ secrets.DISCORD_WEBHOOK }} \
+          curl -X POST https://discord.com/api/webhooks/1432469346810073169/JZyJMWhjrpdc6mSiYZ1i8Fj8qL5UIJrpQFUMfAoKm9OoDso6vc2mIDpnTB1NuB6zwwtG \
             -H "Content-Type: application/json" \
             -d '{"content":"🧪 Webhook test from GitHub Actions"}'
