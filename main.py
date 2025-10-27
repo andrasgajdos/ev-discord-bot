@@ -17,7 +17,7 @@ print = functools.partial(builtins.print, flush=True)
 load_dotenv()
 
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
-MIN_EV = 0.04        # 4% edge threshold
+MIN_EV = 0.00        # 4% edge threshold
 SCAN_MINUTES = 3
 DB_FILE = "sent.db"
 
