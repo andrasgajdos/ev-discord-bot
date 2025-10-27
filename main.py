@@ -29,6 +29,7 @@ def mark_sent(key):
 # ---------- book feeds ----------
 def gamdom_feed():
     url = "https://gamdom.com/sports/data/matches"
+    print("🔍 fetching GAMDOM…")
     resp = requests.get(url, timeout=15)
     resp.raise_for_status()
     data = resp.json()
@@ -52,6 +53,7 @@ def gamdom_feed():
 
 def rainbet_feed():
     url = "https://sports-prod.circa.cloud/betby/prematch/events"
+    print("🔍 fetching RAINBET…")
     resp = requests.get(url, timeout=15)
     resp.raise_for_status()
     data = resp.json()
