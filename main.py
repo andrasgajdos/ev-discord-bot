@@ -28,7 +28,7 @@ def mark_sent(key):
 
 # ---------- book feeds ----------
 def gamdom_feed():
-    url = "https://gamdom.com/sports/data/matches"
+    url = "https://gamdom.eu/sports/data/matches"
     print("🔍 fetching GAMDOM…")
     resp = requests.get(url, timeout=15)
     resp.raise_for_status()
