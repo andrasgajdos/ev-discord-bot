@@ -7,17 +7,16 @@ import sqlite3
 import traceback
 import functools
 import builtins
-from statistics import median
 from dotenv import load_dotenv
 
-# Always flush print output immediately (important for Render logs)
+# Always flush print output immediately
 print = functools.partial(builtins.print, flush=True)
 
 # Load .env
 load_dotenv()
 
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
-print("DEBUG: DISCORD_WEBHOOK =", DISCORD_WEBHOOK)  # Check webhook
+print("DEBUG: DISCORD_WEBHOOK =", DISCORD_WEBHOOK)
 
 # ---------- MANUAL TEST ----------
 if DISCORD_WEBHOOK:
@@ -29,16 +28,12 @@ if DISCORD_WEBHOOK:
 else:
     print("❌ DISCORD_WEBHOOK not set")
 
-MIN_EV = 0.00        # temporarily 0 to trigger dummy alert
+MIN_EV = 0.00  # temporarily 0 to trigger dummy alert
 SCAN_MINUTES = 3
 DB_FILE = "sent.db"
 
 # ---------- helpers ----------
-def decimal_implied(odd):
-    return 1.0 / odd
-
 def send_discord(body):
-    """Send message to Discord via webhook."""
     if not DISCORD_WEBHOOK:
         print("❌ No webhook set, cannot send Discord message")
         return
@@ -49,35 +44,32 @@ def send_discord(body):
         print("❌ Discord send error:", e)
 
 def init_db():
-    """Initialize SQLite DB to track sent alerts."""
     with sqlite3.connect(DB_FILE) as con:
         con.execute("CREATE TABLE IF NOT EXISTS sent(key TEXT PRIMARY KEY)")
 
 def was_sent(key):
-    """Check if alert already sent."""
     with sqlite3.connect(DB_FILE) as con:
         return con.execute("SELECT 1 FROM sent WHERE key=?", (key,)).fetchone() is not None
 
 def mark_sent(key):
-    """Mark alert as sent."""
     with sqlite3.connect(DB_FILE) as con:
         con.execute("INSERT OR IGNORE INTO sent(key) VALUES(?)", (key,))
 
-# ---------- book feeds (dummy) ----------
+# ---------- book feeds (dummy, +EV guaranteed) ----------
 def gamdom_feed():
     print("📥 GAMDOM dummy feed")
     return [
-        {"book": "gamdom", "match": "Test v Test", "market": "Match Winner", "outcome": "Home", "odd": 2.50}
+        {"book": "gamdom", "match": "Test v Test", "market": "Match Winner", "outcome": "Home", "odd": 2.20}
     ]
 
 def rainbet_feed():
     print("📥 RAINBET dummy feed")
     return [
-        {"book": "rainbet", "match": "Test v Test", "market": "Match Winner", "outcome": "Away", "odd": 2.60}
+        {"book": "rainbet", "match": "Test v Test", "market": "Match Winner", "outcome": "Away", "odd": 2.50}
     ]
 
 def pinnacle_feed():
-    print("📥 PINNACLE dummy feed (free-plan block)")
+    print("📥 PINNACLE dummy feed")
     return {
         ("Test v Test", "Home"): 2.40,
         ("Test v Test", "Away"): 2.55
