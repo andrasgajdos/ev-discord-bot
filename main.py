@@ -28,18 +28,23 @@ def mark_sent(key):
 
 # ---------- book feeds ----------
 def gamdom_feed():
-    url = "https://gamdom.eu/sports/data/matches"
+    url = "https://gamdom.com/sports/data/matches"
     print("🔍 fetching GAMDOM…")
-    resp = requests.get(url, timeout=15)
-    resp.raise_for_status()
-    data = resp.json()
-    print("📥 GAMDOM raw payload:", data)   # debug
+    try:
+        resp = requests.get(url, timeout=5)
+        resp.raise_for_status()
+        data = resp.json()
+        print("📥 GAMDOM raw payload:", data)
+    except Exception as e:
+        print("❌ GAMDOM error:", e)
+        data = []
+    # (rest of your parsing loop stays identical)
     odds = []
     for sport in data:
         for league in sport.get("leagues", []):
             for match in league.get("matches", []):
                 for market in match.get("markets", []):
-                    if market.get("name") != "1X2" and market.get("name") != "Match Winner":
+                    if market.get("name") not in ("1X2", "Match Winner"):
                         continue
                     for sel in market.get("selections", []):
                         odds.append({
@@ -54,14 +59,18 @@ def gamdom_feed():
 def rainbet_feed():
     url = "https://sports-prod.circa.cloud/betby/prematch/events"
     print("🔍 fetching RAINBET…")
-    resp = requests.get(url, timeout=15)
-    resp.raise_for_status()
-    data = resp.json()
-    print("📥 RAINBET raw payload:", data)  # debug
+    try:
+        resp = requests.get(url, timeout=5)
+        resp.raise_for_status()
+        data = resp.json()
+        print("📥 RAINBET raw payload:", data)
+    except Exception as e:
+        print("❌ RAINBET error:", e)
+        data = []
     odds = []
     for event in data:
         for market in event.get("markets", []):
-            if market.get("name") != "1X2" and market.get("name") != "Match Winner":
+            if market.get("name") not in ("1X2", "Match Winner"):
                 continue
             for outcome in market.get("outcomes", []):
                 odds.append({
