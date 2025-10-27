@@ -19,6 +19,16 @@ load_dotenv()
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
 print("DEBUG: DISCORD_WEBHOOK =", DISCORD_WEBHOOK)  # Check webhook
 
+# ---------- MANUAL TEST ----------
+if DISCORD_WEBHOOK:
+    try:
+        resp = requests.post(DISCORD_WEBHOOK, json={"content": "Test message"}, timeout=10)
+        print("Manual Discord test:", resp.status_code, resp.text)
+    except Exception as e:
+        print("Manual Discord test failed:", e)
+else:
+    print("❌ DISCORD_WEBHOOK not set")
+
 MIN_EV = 0.00        # temporarily 0 to trigger dummy alert
 SCAN_MINUTES = 3
 DB_FILE = "sent.db"
