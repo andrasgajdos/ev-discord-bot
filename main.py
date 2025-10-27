@@ -32,6 +32,7 @@ def gamdom_feed():
     resp = requests.get(url, timeout=15)
     resp.raise_for_status()
     data = resp.json()
+    print("📥 GAMDOM raw payload:", data)   # debug
     odds = []
     for sport in data:
         for league in sport.get("leagues", []):
@@ -54,6 +55,7 @@ def rainbet_feed():
     resp = requests.get(url, timeout=15)
     resp.raise_for_status()
     data = resp.json()
+    print("📥 RAINBET raw payload:", data)  # debug
     odds = []
     for event in data:
         for market in event.get("markets", []):
