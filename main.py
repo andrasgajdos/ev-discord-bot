@@ -137,5 +137,8 @@ def scan():
 # ---------- loop ----------
 if __name__ == "__main__":
     while True:
-        scan()
+        try:
+            scan()
+        except Exception as e:
+            print("💥 CRASH:", traceback.format_exc())
         time.sleep(SCAN_MINUTES * 60)
