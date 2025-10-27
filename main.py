@@ -86,12 +86,16 @@ def scan():
         send_discord(msg)
         mark_sent(alert_key)
         print("sent:", alert_key)
+             
+    print("✅ SCAN FUNCTION FINISHED")
 
 # ---------- loop ----------
 if __name__ == "__main__":
     while True:
         try:
+            print("🔄 starting scan…")
             scan()
+            print("🔄 scan done, sleeping…")
         except Exception as e:
             print("💥 CRASH:", traceback.format_exc())
         time.sleep(SCAN_MINUTES * 60)
