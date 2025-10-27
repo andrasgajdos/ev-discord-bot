@@ -101,6 +101,7 @@ def pinnacle_feed():
 
 # ---------- ev scanner ----------
 def scan():
+    print("🔥 ENTERED SCAN FUNCTION")   # <— add this line
     init_db()
     print(f"[{datetime.datetime.utcnow():%Y-%m-%d %H:%M:%S}] scanning…")
     try:
