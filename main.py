@@ -9,13 +9,12 @@ import builtins
 import random
 from dotenv import load_dotenv
 
-# flush logs immediately (Render likes it)
 print = functools.partial(builtins.print, flush=True)
 load_dotenv()
 
 # ---------- config ----------
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
-MIN_EV          = 0.04          # 4 % edge
+MIN_EV          = 0.04
 SCAN_MINUTES    = 3
 DB_FILE         = "sent.db"
 USER_AGENT      = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
@@ -47,19 +46,29 @@ def mark_sent(key):
 # ---------- feeds ----------
 def fetch_gamdom():
     """Live scrape Gamdom pre-match decimal odds."""
-    url = "https://gamdom.com/sports/data/matches"
-    params = {"timezone": "UTC"}
-    headers = {"User-Agent": USER_AGENT}
+    url     = "https://gamdom.com/sports/data/matches"
+    params  = {"timezone": "UTC"}
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "application/json",
+        "Accept-Language": "en-GB,en;q=0.9",
+        "Referer": "https://gamdom.com/sports",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache"
+    }
 
     try:
         print("🔍 Gamdom fetch…")
-        time.sleep(random.uniform(2, 4))               # polite rate-limit
+        time.sleep(random.uniform(2, 4))
         r = requests.get(url, params=params, headers=headers, timeout=10)
-        r.raise_for_status()
+        print("Gamdom status:", r.status_code, "len:", len(r.text))
+        if r.status_code != 200:
+            print("Gamdom non-200:", r.text[:200])
+            return []
         data = r.json()
         print("📥 Gamdom payload received")
     except Exception as e:
-        print("❌ Gamdom fail:", e)
+        print("❌ Gamdom fail:", traceback.format_exc())
         return []
 
     odds = []
@@ -81,7 +90,7 @@ def fetch_gamdom():
     return odds
 
 def fetch_pinnacle():
-    """Dummy sharp reference (replace with real Pinnacle scrape later)."""
+    """Dummy sharp reference (replace with real scrape later)."""
     print("📥 Pinnacle dummy")
     return {("Test v Test", "Home"): 2.40, ("Test v Test", "Away"): 2.55}
 
