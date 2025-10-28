@@ -7,21 +7,21 @@ import functools
 import builtins
 import unicodedata
 from dotenv import load_dotenv
-import json
 
 # Always flush print output
 print = functools.partial(builtins.print, flush=True)
 
-# Load environment
+# Load environment variables
 load_dotenv()
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
+ODDSAPI_KEY = os.getenv("ODDSAPI_KEY")
 
 # ---------- Config ----------
-MIN_EV = 0.0
-SCAN_MINUTES = 3
+MIN_EV = 0.0          # Minimum EV to alert
+SCAN_MINUTES = 3      # How often to scan
 DB_FILE = "sent.db"
 
-# Mapping Gamdom league IDs → names (for debug)
+# Mapping Gamdom league IDs → Pinnacle sport_keys
 LEAGUE_MAP = {
     56: "soccer_italy_serie_a",
     90: "soccer_germany_bundesliga",
@@ -38,7 +38,7 @@ GAMDOM_LEAGUES = {
     116: "https://api.gamdom.onebittech.com/api/partidos?IdInstanciaTorneo=116",
 }
 
-# ---------- helpers ----------
+# ---------- Helpers ----------
 def send_discord(msg):
     if not DISCORD_WEBHOOK:
         print("❌ No webhook set")
@@ -67,14 +67,15 @@ def normalize_team(name):
     name = ''.join(c for c in unicodedata.normalize('NFKD', name) if not unicodedata.combining(c))
     return name
 
-# ---------- feeds ----------
+# ---------- Feeds ----------
 def gamdom_feed():
-    """Fetch all matches from Gamdom using CotizacionWeb for real odds."""
+    """Fetch all matches from Gamdom and parse odds correctly."""
     all_odds = []
     headers = {
         "User-Agent": "Mozilla/5.0",
         "Accept": "application/json",
         "Referer": "https://sb.gamdom.onebittech.com",
+        "Accept-Language": "en",
     }
 
     for league_id, url in GAMDOM_LEAGUES.items():
@@ -104,7 +105,7 @@ def gamdom_feed():
             for mod in match.get("Modalidades", []):
                 market_name = mod.get("Modalidad", "Unknown")
                 for oferta in mod.get("Ofertas", []):
-                    odd = oferta.get("CotizacionWeb")  # real web odds
+                    odd = oferta.get("CotizacionWeb") or oferta.get("CotizacionTicket")
                     if not odd:
                         continue
 
@@ -129,10 +130,35 @@ def gamdom_feed():
     print(f"✅ Total matches fetched: {len(all_odds)}")
     return all_odds
 
-def pinnacle_feed_from_json(json_data):
-    """Parse Pinnacle JSON directly."""
+def pinnacle_feed(league_id):
+    """Fetch Pinnacle odds for a specific league."""
+    sport_key = LEAGUE_MAP.get(league_id)
+    if not sport_key:
+        print(f"⚠️ No mapping for league {league_id}")
+        return {}
+
+    url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
+    params = {
+        "regions": "eu",
+        "markets": "h2h",
+        "oddsFormat": "decimal",
+        "bookmakers": "pinnacle",
+        "apiKey": ODDSAPI_KEY
+    }
+
+    try:
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.HTTPError as e:
+        print(f"❌ Pinnacle fetch error for {sport_key}: {e}")
+        return {}
+    except Exception as e:
+        print(f"❌ Pinnacle unexpected error for {sport_key}: {e}")
+        return {}
+
     sharp_odds = {}
-    for m in json_data:
+    for m in data:
         home = normalize_team(m["home_team"])
         away = normalize_team(m["away_team"])
         for book in m.get("bookmakers", []):
@@ -144,10 +170,12 @@ def pinnacle_feed_from_json(json_data):
                 for outcome in market.get("outcomes", []):
                     key = (f"{home} vs {away}", outcome["name"])
                     sharp_odds[key] = outcome["price"]
+
+    print(f"DEBUG: Pinnacle data for league {league_id}: {len(sharp_odds)} odds")
     return sharp_odds
 
-# ---------- EV scan ----------
-def scan(pinnacle_json):
+# ---------- EV Scan ----------
+def scan():
     init_db()
     print(f"[{datetime.datetime.now(datetime.timezone.utc):%Y-%m-%d %H:%M:%S}] scanning…")
 
@@ -156,7 +184,13 @@ def scan(pinnacle_json):
         print("❌ No Gamdom odds fetched")
         return
 
-    all_sharp = pinnacle_feed_from_json(pinnacle_json)
+    # Group soft odds by league to query Pinnacle once per league
+    leagues = set(row["league_id"] for row in soft_odds)
+    all_sharp = {}
+    for league_id in leagues:
+        sharp = pinnacle_feed(league_id)
+        if sharp:
+            all_sharp.update(sharp)
 
     # Compare and send Discord alerts
     for row in soft_odds:
@@ -183,15 +217,11 @@ def scan(pinnacle_json):
 
     print("✅ Scan finished")
 
-# ---------- main loop ----------
+# ---------- Main loop ----------
 if __name__ == "__main__":
-    # Load Pinnacle JSON from file or environment
-    with open("pinnacle.json", "r") as f:
-        pinnacle_json = json.load(f)
-
     while True:
         try:
-            scan(pinnacle_json)
+            scan()
             print(f"😴 sleeping {SCAN_MINUTES} min…")
         except Exception as e:
             print("💥 Crash:", e)
