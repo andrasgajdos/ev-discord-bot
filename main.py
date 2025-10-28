@@ -48,8 +48,8 @@ def mark_sent(key):
 def fetch_gamdom():
     """Fetch Gamdom pre-match odds. Tries JSON API first, then falls back to HTML scrape."""
     import re, html, json
-    url_api  = "https://gamdom.com/sports/data/matches"
-    url_page = "https://gamdom.com/sports"
+    url_api  = "https://gamdom.eu/sports/data/matches"
+    url_page = "https://gamdom.eu/sports"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/json,text/html",
