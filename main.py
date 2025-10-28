@@ -14,7 +14,7 @@ print = functools.partial(builtins.print, flush=True)
 # Load environment
 load_dotenv()
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
-ODDSAPI_KEY = os.getenv("ODDSAPI_KEY")
+ODDSAPI_KEY = os.getenv("THE_ODDS_API_KEY")
 
 # ---------- Config ----------
 MIN_EV = 0.0
@@ -25,7 +25,7 @@ DB_FILE = "sent.db"
 LEAGUE_MAP = {
     56: "soccer_italy_serie_a",
     90: "soccer_germany_bundesliga",
-    95: "soccer_england_premier_league",
+    95: "soccer_epl",
     29: "soccer_spain_la_liga",
     116: "soccer_france_ligue_one",
 }
