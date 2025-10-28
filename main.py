@@ -69,7 +69,6 @@ def normalize_team(name):
 
 # ---------- Feeds ----------
 def gamdom_feed():
-    """Fetch all matches from Gamdom and parse odds correctly."""
     all_odds = []
     headers = {
         "User-Agent": "Mozilla/5.0",
@@ -131,7 +130,6 @@ def gamdom_feed():
     return all_odds
 
 def pinnacle_feed(league_id):
-    """Fetch Pinnacle odds for a specific league."""
     sport_key = LEAGUE_MAP.get(league_id)
     if not sport_key:
         print(f"⚠️ No mapping for league {league_id}")
@@ -168,7 +166,7 @@ def pinnacle_feed(league_id):
                 if market["key"] != "h2h":
                     continue
                 for outcome in market.get("outcomes", []):
-                    key = (f"{home} vs {away}", outcome["name"])
+                    key = (f"{home} vs {away}", normalize_team(outcome["name"]))
                     sharp_odds[key] = outcome["price"]
 
     print(f"DEBUG: Pinnacle data for league {league_id}: {len(sharp_odds)} odds")
@@ -184,7 +182,7 @@ def scan():
         print("❌ No Gamdom odds fetched")
         return
 
-    # Group soft odds by league to query Pinnacle once per league
+    # Fetch Pinnacle odds once per league
     leagues = set(row["league_id"] for row in soft_odds)
     all_sharp = {}
     for league_id in leagues:
@@ -194,17 +192,20 @@ def scan():
 
     # Compare and send Discord alerts
     for row in soft_odds:
-        key = (normalize_team(f"{row['home']} vs {row['away']}"), row["outcome"])
+        key = (normalize_team(f"{row['home']} vs {row['away']}"), normalize_team(row["outcome"]))
         if key not in all_sharp:
             continue
+
         soft_odd = row["odd"]
         sharp_odd = all_sharp[key]
         ev = (sharp_odd / soft_odd) - 1
         if ev < MIN_EV:
             continue
+
         alert_key = f"{row['match']} {row['outcome']} {datetime.date.today()}"
         if was_sent(alert_key):
             continue
+
         msg = (
             f"@everyone +EV {ev:.1%}\n"
             f"**Gamdom** {row['match']}\n"
