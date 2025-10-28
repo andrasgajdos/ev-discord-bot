@@ -1,27 +1,28 @@
-import json
 import time
-import random
+import json
 from playwright.sync_api import sync_playwright
 
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
     page = browser.new_page()
+    
+    print("🔍 Navigating to Gamdom...")
     page.goto("https://gamdom.com/sports")
+    
+    # Wait a few seconds for JavaScript to populate window.__INITIAL_STATE__
+    time.sleep(5)
 
-    # wait a few seconds for JS to load the data
-    time.sleep(random.uniform(3, 5))
-
-    # grab the inline JS state directly
-    data = page.evaluate("() => window.__INITIAL_STATE__")
-    if not data:
-        print("❌ Could not find INITIAL_STATE")
+    # Grab the live state directly from the page
+    state = page.evaluate("() => window.__INITIAL_STATE__")
+    if not state:
+        print("❌ No __INITIAL_STATE__ found")
         browser.close()
         exit()
 
-    print("📥 Gamdom data found")
-
+    print("📥 Found __INITIAL_STATE__")
+    
     odds = []
-    for sport in data.get("sports", []):
+    for sport in state.get("sports", []):
         for league in sport.get("leagues", []):
             for match in league.get("matches", []):
                 for market in match.get("markets", []):
@@ -37,7 +38,7 @@ with sync_playwright() as p:
                         })
 
     print(f"✅ Parsed {len(odds)} outcomes")
-    for o in odds[:10]:  # show first 10 for a quick check
+    for o in odds[:10]:  # print first 10 as a sample
         print(o)
 
     browser.close()
