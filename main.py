@@ -62,7 +62,6 @@ def mark_sent(key):
         con.execute("INSERT OR IGNORE INTO sent(key) VALUES(?)", (key,))
 
 def normalize_team(name):
-    """Lowercase, strip accents, remove extra spaces."""
     name = name.lower().strip()
     name = ''.join(c for c in unicodedata.normalize('NFKD', name) if not unicodedata.combining(c))
     return name
@@ -84,6 +83,8 @@ def gamdom_feed():
         except Exception as e:
             print(f"❌ Gamdom fetch error for league {league_id}:", e)
             continue
+
+        print(f"DEBUG: league {league_id} returned {len(data)} items")
 
         if not isinstance(data, list):
             print(f"⚠️ Unexpected JSON for league {league_id}: {data}")
@@ -113,7 +114,6 @@ def gamdom_feed():
     return all_odds
 
 def pinnacle_feed(league_id):
-    """Fetch Pinnacle odds for a specific league."""
     sport_key = LEAGUE_MAP.get(league_id)
     if not sport_key:
         return {}
@@ -136,10 +136,10 @@ def pinnacle_feed(league_id):
         return {}
 
     sharp_odds = {}
-    for match in data:
-        home = normalize_team(match["home_team"])
-        away = normalize_team(match["away_team"])
-        for book in match.get("bookmakers", []):
+    for m in data:
+        home = normalize_team(m["home_team"])
+        away = normalize_team(m["away_team"])
+        for book in m.get("bookmakers", []):
             if book["key"] != "pinnacle":
                 continue
             for market in book.get("markets", []):
@@ -160,7 +160,7 @@ def scan():
         print("❌ No Gamdom odds fetched")
         return
 
-    # Group soft odds by league to query Pinnacle once per league
+    # Query Pinnacle once per league
     leagues = set(row["league_id"] for row in soft_odds)
     all_sharp = {}
     for league_id in leagues:
