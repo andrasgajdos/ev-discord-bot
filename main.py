@@ -62,13 +62,14 @@ def mark_sent(key):
         con.execute("INSERT OR IGNORE INTO sent(key) VALUES(?)", (key,))
 
 def normalize_team(name):
+    """Lowercase, strip accents, remove extra spaces."""
     name = name.lower().strip()
     name = ''.join(c for c in unicodedata.normalize('NFKD', name) if not unicodedata.combining(c))
     return name
 
 # ---------- feeds ----------
 def gamdom_feed():
-    """Fetch all matches from Gamdom and parse odds correctly."""
+    """Fetch all matches from Gamdom using CotizacionWeb for real odds."""
     all_odds = []
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -87,25 +88,31 @@ def gamdom_feed():
             print(f"❌ Gamdom fetch error for league {league_id}:", e)
             continue
 
-        # DEBUG: see how many items returned per league
         print(f"DEBUG: league {league_id} returned {len(data)} items")
 
         if not data:
-            print(f"⚠️ No matches found for league {league_id}")
             continue
 
         for match in data:
             home_name = match.get("home") or match.get("EquipoLocalNombre", "Unknown")
             away_name = match.get("away") or match.get("EquipoVisitanteNombre", "Unknown")
 
-            for market in match.get("markets", []):
-                market_name = market.get("name") or "Unknown"
-                for selection in market.get("selections", []):
-                    odd = selection.get("odds") or selection.get("CotizacionTicket")
+            # Each match has 'Modalidades' → 'Ofertas'
+            for modalidad in match.get("Modalidades", []):
+                market_name = modalidad.get("Modalidad", "Unknown")
+                for oferta in modalidad.get("Ofertas", []):
+                    odd = oferta.get("CotizacionWeb")  # use the real web odds
                     if not odd:
                         continue
 
-                    outcome_team = selection.get("name") or selection.get("OfertaEvento")
+                    localia = oferta.get("Localia")
+                    if localia == 1:
+                        outcome_team = home_name
+                    elif localia == 2:
+                        outcome_team = away_name
+                    else:
+                        outcome_team = oferta.get("OfertaEvento")
+
                     all_odds.append({
                         "league_id": league_id,
                         "match": f"{home_name} vs {away_name}",
@@ -120,6 +127,7 @@ def gamdom_feed():
     return all_odds
 
 def pinnacle_feed(league_id):
+    """Fetch Pinnacle odds for a specific league."""
     sport_key = LEAGUE_MAP.get(league_id)
     if not sport_key:
         return {}
@@ -166,7 +174,7 @@ def scan():
         print("❌ No Gamdom odds fetched")
         return
 
-    # Query Pinnacle once per league
+    # Group soft odds by league to query Pinnacle once per league
     leagues = set(row["league_id"] for row in soft_odds)
     all_sharp = {}
     for league_id in leagues:
