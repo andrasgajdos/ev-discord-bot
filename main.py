@@ -16,6 +16,8 @@ load_dotenv()
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
 ODDSAPI_KEY = os.getenv("THE_ODDS_API_KEY")
 
+print("DEBUG: Odds API Key loaded:", ODDSAPI_KEY is not None)
+
 # ---------- Config ----------
 MIN_EV = 0.0
 SCAN_MINUTES = 3
@@ -69,41 +71,43 @@ def normalize_team(name):
 
 # ---------- feeds ----------
 def gamdom_feed():
-    """Fetch all matches from Gamdom and parse odds correctly."""
+    """Fetch all matches from Gamdom and parse odds."""
     all_odds = []
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0",
         "Accept": "application/json",
         "Referer": "https://sb.gamdom.onebittech.com",
         "Accept-Language": "en",
     }
 
-    for league_id, base_url in GAMDOM_LEAGUES.items():
+    for league_id, url in GAMDOM_LEAGUES.items():
         try:
-            resp = requests.get(base_url, headers=headers, timeout=10)
+            resp = requests.get(url, headers=headers, timeout=10)
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
             print(f"❌ Gamdom fetch error for league {league_id}:", e)
             continue
 
-        # Gamdom returns 'matches' list or full list directly
         matches = data.get("matches") if isinstance(data, dict) else data
         if not matches:
             print(f"⚠️ No matches found for league {league_id}")
             continue
 
         for match in matches:
-            desc = match.get("Descripcion", "")
-            if " vs " in desc:
-                home_name, away_name = [x.strip() for x in desc.split(" vs ")]
-            else:
-                home_name = match.get("EquipoLocalNombre", "Unknown")
-                away_name = match.get("EquipoVisitanteNombre", "Unknown")
+            home_name = match.get("EquipoLocalNombre", "")
+            away_name = match.get("EquipoVisitanteNombre", "")
+            if not home_name or not away_name:
+                desc = match.get("Descripcion", "")
+                if " vs " in desc:
+                    home_name, away_name = [x.strip() for x in desc.split(" vs ")]
+                else:
+                    continue  # skip if no proper names
 
             for mod in match.get("Modalidades", []):
-                market_name = mod.get("Modalidad", "Unknown")
+                market_name = mod.get("Modalidad")
+                if not market_name:
+                    continue
                 for oferta in mod.get("Ofertas", []):
                     odd = oferta.get("CotizacionTicket")
                     if not odd:
@@ -111,11 +115,13 @@ def gamdom_feed():
 
                     localia = oferta.get("Localia")
                     if localia == 1:
-                        outcome_team = home_name
+                        outcome = home_name
                     elif localia == 2:
-                        outcome_team = away_name
+                        outcome = away_name
                     else:
-                        outcome_team = oferta.get("OfertaEvento")
+                        outcome = oferta.get("OfertaEvento")
+                        if not outcome:
+                            continue
 
                     all_odds.append({
                         "league_id": league_id,
@@ -123,23 +129,23 @@ def gamdom_feed():
                         "home": home_name,
                         "away": away_name,
                         "market": market_name,
-                        "outcome": outcome_team,
+                        "outcome": outcome,
                         "odd": float(odd)
                     })
 
-    print(f"✅ Total matches fetched: {len(all_odds)}")
+    print(f"✅ Total Gamdom odds fetched: {len(all_odds)}")
     return all_odds
 
-def pinnacle_feed(league_id):
-    """Fetch Pinnacle odds for a specific league."""
+def pinnacle_feed(league_id, market_type="h2h"):
+    """Fetch Pinnacle odds for a league and specific market (h2h, totals, btts)."""
     sport_key = LEAGUE_MAP.get(league_id)
-    if not sport_key:
+    if not sport_key or not ODDSAPI_KEY:
         return {}
 
     url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
     params = {
         "regions": "eu",
-        "markets": "h2h",
+        "markets": market_type,
         "oddsFormat": "decimal",
         "bookmakers": "pinnacle",
         "apiKey": ODDSAPI_KEY
@@ -150,7 +156,7 @@ def pinnacle_feed(league_id):
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
-        print(f"❌ Pinnacle fetch error for {sport_key}:", e)
+        print(f"❌ Pinnacle fetch error for {sport_key}: {e}")
         return {}
 
     sharp_odds = {}
@@ -161,7 +167,7 @@ def pinnacle_feed(league_id):
             if book["key"] != "pinnacle":
                 continue
             for market in book.get("markets", []):
-                if market["key"] != "h2h":
+                if market["key"] != market_type:
                     continue
                 for outcome in market.get("outcomes", []):
                     key = (f"{home} vs {away}", outcome["name"])
@@ -178,15 +184,13 @@ def scan():
         print("❌ No Gamdom odds fetched")
         return
 
-    # Group soft odds by league to query Pinnacle once per league
     leagues = set(row["league_id"] for row in soft_odds)
     all_sharp = {}
     for league_id in leagues:
-        sharp = pinnacle_feed(league_id)
+        sharp = pinnacle_feed(league_id, market_type="h2h")
         if sharp:
             all_sharp.update(sharp)
 
-    # Compare and send Discord alerts
     for row in soft_odds:
         key = (normalize_team(f"{row['home']} vs {row['away']}"), row["outcome"])
         if key not in all_sharp:
