@@ -69,7 +69,7 @@ def normalize_team(name):
 
 # ---------- feeds ----------
 def gamdom_feed():
-    """Fetch all matches from Gamdom with proper headers and params."""
+    """Fetch all matches from Gamdom with headers, no RID, and debug print."""
     all_odds = []
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -83,9 +83,9 @@ def gamdom_feed():
         params = {
             "IdInstanciaTorneo": league_id,
             "IdProveedor": 20,
-            "Modo": "W",
-            "rid": 781273  # you can generate or ignore if optional
+            "Modo": "W"
         }
+
         try:
             resp = requests.get(base_url, headers=headers, params=params, timeout=10)
             resp.raise_for_status()
@@ -94,13 +94,20 @@ def gamdom_feed():
             print(f"❌ Gamdom fetch error for league {league_id}:", e)
             continue
 
-        # Handle list/dict
+        print(f"DEBUG: Raw JSON for league {league_id}:")
+        print(data)  # <- See exactly what the API returned
+
+        # Handle both list and dict
         if isinstance(data, list):
             matches = data
         elif isinstance(data, dict):
             matches = data.get("matches", [])
         else:
             matches = []
+
+        if not matches:
+            print(f"⚠️ No matches found for league {league_id}")
+            continue
 
         for match in matches:
             home = match.get("home")
@@ -118,6 +125,8 @@ def gamdom_feed():
                         "outcome": sel.get("name"),
                         "odd": float(sel.get("odds"))
                     })
+
+    print(f"✅ Total matches fetched: {len(all_odds)}")
     return all_odds
 
 def pinnacle_feed(league_id):
