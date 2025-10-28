@@ -14,12 +14,12 @@ print = functools.partial(builtins.print, flush=True)
 # Load environment variables
 load_dotenv()
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
-ODDSAPI_KEY = os.getenv("THE_ODDS_API_KEY") # ✅ Fixed variable name
+ODDSAPI_KEY = os.getenv("THE_ODDS_API_KEY")  # ✅ Ensure matches your .env
 print("DEBUG: THE_ODDS_API_KEY =", ODDSAPI_KEY)
 
 # ---------- Config ----------
 MIN_EV = 0.01          # Minimum EV to alert
-SCAN_MINUTES = 3      # How often to scan
+SCAN_MINUTES = 3       # Scan interval
 DB_FILE = "sent.db"
 
 # Mapping Gamdom league IDs → Pinnacle sport_keys
@@ -70,7 +70,7 @@ def normalize_team(name):
 
 # ---------- Feeds ----------
 def gamdom_feed():
-    """Fetch all matches from Gamdom and parse odds correctly."""
+    """Fetch all matches from Gamdom."""
     all_odds = []
     headers = {
         "User-Agent": "Mozilla/5.0",
@@ -132,7 +132,7 @@ def gamdom_feed():
     return all_odds
 
 def pinnacle_feed(league_id):
-    """Fetch Pinnacle odds for a specific league via The Odds API."""
+    """Fetch Pinnacle odds for a league."""
     sport_key = LEAGUE_MAP.get(league_id)
     if not sport_key:
         print(f"⚠️ No mapping for league {league_id}")
@@ -144,7 +144,7 @@ def pinnacle_feed(league_id):
         "markets": "h2h",
         "oddsFormat": "decimal",
         "bookmakers": "pinnacle",
-        "apiKey": ODDSAPI_KEY,  # ✅ Fixed to match .env
+        "apiKey": ODDSAPI_KEY,
     }
 
     try:
@@ -185,7 +185,7 @@ def scan():
         print("❌ No Gamdom odds fetched")
         return
 
-    # Group soft odds by league to query Pinnacle once per league
+    # Query Pinnacle once per league
     leagues = set(row["league_id"] for row in soft_odds)
     all_sharp = {}
     for league_id in leagues:
@@ -193,14 +193,17 @@ def scan():
         if sharp:
             all_sharp.update(sharp)
 
-    # Compare and send Discord alerts
+    sent_any = False
+
     for row in soft_odds:
         key = (normalize_team(f"{row['home']} vs {row['away']}"), row["outcome"])
         if key not in all_sharp:
+            print("⚠️ No Pinnacle match for key:", key)
             continue
         soft_odd = row["odd"]
         sharp_odd = all_sharp[key]
-        ev = (sharp_odd / soft_odd) - 1
+        ev = (soft_odd / sharp_odd) - 1  # 🔹 Correct for Gamdom > Pinnacle
+        print(f"DEBUG EV {row['match']} {row['outcome']}: {ev:.3f}")
         if ev < MIN_EV:
             continue
         alert_key = f"{row['match']} {row['outcome']} {datetime.date.today()}"
@@ -215,15 +218,9 @@ def scan():
         send_discord(msg)
         mark_sent(alert_key)
         print("🚀 Sent alert:", alert_key)
+        sent_any = True
 
-    print("✅ Scan finished")
-
-# ---------- Main loop ----------
-if __name__ == "__main__":
-    while True:
-        try:
-            scan()
-            print(f"😴 sleeping {SCAN_MINUTES} min…")
-        except Exception as e:
-            print("💥 Crash:", e)
-        time.sleep(SCAN_MINUTES * 60)
+    # If nothing sent, send a summary of the first match for testing
+    if not sent_any and soft_odds:
+        first = soft_odds[0]
+        msg = f"⚠️ Test alert: {first['match']} - {first['outcome']} odds {first['odd']:.2f}"
