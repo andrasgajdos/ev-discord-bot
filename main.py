@@ -62,9 +62,14 @@ def fetch_gamdom():
         time.sleep(random.uniform(2, 4))
         r = requests.get(url, params=params, headers=headers, timeout=10)
         print("Gamdom status:", r.status_code, "len:", len(r.text))
-        if r.status_code != 200:
-            print("Gamdom non-200:", r.text[:200])
-            return []
+        if r.status_code != 200 or len(r.text) < 100:
+            print("Gamdom empty/bad, retrying once…")
+            time.sleep(3)
+            r = requests.get(url, headers=headers, timeout=10)   # no params on retry
+            print("Gamdom retry status:", r.status_code, "len:", len(r.text))
+            if r.status_code != 200 or len(r.text) < 100:
+                print("Gamdom still empty, abort")
+                return []
         data = r.json()
         print("📥 Gamdom payload received")
     except Exception as e:
