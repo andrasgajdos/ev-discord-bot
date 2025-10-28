@@ -7,8 +7,12 @@ import traceback
 import functools
 import builtins
 import random
+import json
+import re
+import html
 from dotenv import load_dotenv
 
+# Flush all prints immediately
 print = functools.partial(builtins.print, flush=True)
 load_dotenv()
 
@@ -45,14 +49,12 @@ def mark_sent(key):
 
 # ---------- feeds ----------
 def fetch_gamdom():
-    """Live scrape Gamdom pre-match decimal odds."""
-    url     = "https://gamdom.com/sports/data/matches"
-    params  = {"timezone": "UTC"}
+    """Scrape Gamdom – tries JSON first, falls back to HTML inline JSON."""
+    url = "https://gamdom.com/sports"
     headers = {
-        "User-Agent": USER_AGENT,
-        "Accept": "application/json",
-        "Accept-Language": "en-GB,en;q=0.9",
-        "Referer": "https://gamdom.com/sports",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
         "Cache-Control": "no-cache",
         "Pragma": "no-cache"
     }
@@ -60,38 +62,44 @@ def fetch_gamdom():
     try:
         print("🔍 Gamdom fetch…")
         time.sleep(random.uniform(2, 4))
-        r = requests.get(url, params=params, headers=headers, timeout=10)
+        r = requests.get(url, headers=headers, timeout=10)
         print("Gamdom status:", r.status_code, "len:", len(r.text))
         if r.status_code != 200 or len(r.text) < 100:
-            print("Gamdom empty/bad, retrying once…")
-            time.sleep(3)
-            r = requests.get(url, headers=headers, timeout=10)
-            print("Gamdom retry status:", r.status_code, "len:", len(r.text))
-            if r.status_code != 200 or len(r.text) < 100:
-                print("Gamdom still empty, abort")
-                return []
-        print("Gamdom first 300 chars:", r.text[:300])
-        data = r.json()
-        print("📥 Gamdom payload received")
-    except Exception as e:
+            print("Gamdom bad, abort")
+            return []
+
+        # extract inline JSON
+        match = re.search(r'window\.__INITIAL_STATE__\s*=\s*(\{.*\})\s*;', r.text, re.DOTALL)
+        if not match:
+            print("Gamdom no inline JSON found")
+            return []
+
+        raw = html.unescape(match.group(1))
+        data = json.loads(raw)
+        print("📥 Gamdom inline JSON parsed")
+
+    except Exception:
         print("❌ Gamdom fail:", traceback.format_exc())
         return []
 
     odds = []
-    for sport in data:
+    for sport in data.get("sports", []):
         for league in sport.get("leagues", []):
             for match in league.get("matches", []):
                 for market in match.get("markets", []):
                     if market.get("name") not in ("1X2", "Match Winner"):
                         continue
                     for sel in market.get("selections", []):
-                        odds.append({
-                            "book": "gamdom",
-                            "match": f"{match['home']} vs {match['away']}",
-                            "market": market["name"],
-                            "outcome": sel["name"],
-                            "odd": float(sel["odds"])
-                        })
+                        try:
+                            odds.append({
+                                "book": "gamdom",
+                                "match": f"{match['home']} vs {match['away']}",
+                                "market": market["name"],
+                                "outcome": sel["name"],
+                                "odd": float(sel["odds"])
+                            })
+                        except (KeyError, ValueError, TypeError):
+                            continue
     print(f"✅ Gamdom parsed {len(odds)} outcomes")
     return odds
 
@@ -136,6 +144,6 @@ if __name__ == "__main__":
     while True:
         try:
             scan()
-        except Exception as e:
+        except Exception:
             print("💥 outer crash:", traceback.format_exc())
         time.sleep(SCAN_MINUTES * 60)
