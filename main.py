@@ -18,7 +18,7 @@ ODDSAPI_KEY = os.getenv("THE_ODDS_API_KEY") # ✅ Fixed variable name
 print("DEBUG: THE_ODDS_API_KEY =", ODDSAPI_KEY)
 
 # ---------- Config ----------
-MIN_EV = 0.0          # Minimum EV to alert
+MIN_EV = 0.01          # Minimum EV to alert
 SCAN_MINUTES = 3      # How often to scan
 DB_FILE = "sent.db"
 
@@ -26,7 +26,7 @@ DB_FILE = "sent.db"
 LEAGUE_MAP = {
     56: "soccer_italy_serie_a",
     90: "soccer_germany_bundesliga",
-    95: "soccer_england_premier_league",
+    95: "soccer_epl",
     29: "soccer_spain_la_liga",
     116: "soccer_france_ligue_one",
 }
