@@ -6,6 +6,7 @@ import sqlite3
 import traceback
 import functools
 import builtins
+import random
 from dotenv import load_dotenv
 
 # flush logs immediately (Render likes it)
