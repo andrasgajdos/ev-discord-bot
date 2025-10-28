@@ -1,38 +1,31 @@
-# test_gamdom.py
 import time
-import random
 import json
-from playwright.sync_api import sync_playwright, TimeoutError
+import traceback
+from playwright.sync_api import sync_playwright
 
-print("🔍 Starting Gamdom scraper…")
+def fetch_gamdom_odds():
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        try:
+            print("🔍 Loading Gamdom sports page…")
+            page.goto("https://gamdom.com/sports", timeout=60000)
 
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=True)
-    page = browser.new_page()
-    
-    url = "https://gamdom.com/sports"
-    page.goto(url)
-    
-    # wait a bit for the page to load dynamic content
-    try:
-        page.wait_for_selector("div[data-testid='sport-card']", timeout=30000)
-    except TimeoutError:
-        print("⚠️ Timeout waiting for sports cards, continuing anyway…")
-    
-    # grab page content
-    content = page.content()
-    print("Page loaded, length:", len(content))
-    
-    # try to find inline JSON (Gamdom bootstraps state in __INITIAL_STATE__)
-    try:
-        js_data = page.evaluate("() => window.__INITIAL_STATE__")
-        if js_data:
-            print("📥 Found inline JSON state")
-            # print keys to see structure
-            print("Top-level keys:", list(js_data.keys()))
-            
+            # wait a few seconds for JS to render
+            time.sleep(5)
+
+            # grab the inline JSON from window.__INITIAL_STATE__
+            js_data = page.evaluate("() => window.__INITIAL_STATE__")
+            if not js_data or "sports" not in js_data:
+                print("❌ No sports data found in Gamdom page")
+                return []
+
+            sports = js_data["sports"]
+            print(f"📥 Found {len(sports)} sports")
+
+            # parse odds
             odds = []
-            for sport in js_data.get("sports", []):
+            for sport in sports:
                 for league in sport.get("leagues", []):
                     for match in league.get("matches", []):
                         for market in match.get("markets", []):
@@ -41,18 +34,21 @@ with sync_playwright() as p:
                             for sel in market.get("selections", []):
                                 odds.append({
                                     "book": "gamdom",
-                                    "match": f"{match['home']} vs {match['away']}",
-                                    "market": market["name"],
-                                    "outcome": sel["name"],
-                                    "odd": float(sel["odds"])
+                                    "match": f"{match.get('home')} vs {match.get('away')}",
+                                    "market": market.get("name"),
+                                    "outcome": sel.get("name"),
+                                    "odd": float(sel.get("odds", 0))
                                 })
             print(f"✅ Parsed {len(odds)} outcomes")
-            for o in odds[:10]:  # print first 10 for demo
-                print(o)
-        else:
-            print("⚠️ No inline JSON found, Gamdom may have changed their structure")
-    except Exception as e:
-        print("❌ Failed to extract inline JSON:", e)
+            return odds
 
-    browser.close()
-    print("🔒 Browser closed, done.")
+        except Exception as e:
+            print("💥 Gamdom fetch failed:", traceback.format_exc())
+            return []
+        finally:
+            browser.close()
+
+if __name__ == "__main__":
+    odds = fetch_gamdom_odds()
+    for o in odds[:10]:  # print first 10 for testing
+        print(o)
