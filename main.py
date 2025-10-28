@@ -224,3 +224,17 @@ def scan():
     if not sent_any and soft_odds:
         first = soft_odds[0]
         msg = f"⚠️ Test alert: {first['match']} - {first['outcome']} odds {first['odd']:.2f}"
+        send_discord(msg)
+        print("🚀 Sent test alert:", first['match'])
+
+    print("✅ Scan finished")
+
+# ---------- Main loop ----------
+if __name__ == "__main__":
+    while True:
+        try:
+            scan()
+            print(f"😴 sleeping {SCAN_MINUTES} min…")
+        except Exception as e:
+            print("💥 Crash:", e)
+        time.sleep(SCAN_MINUTES * 60)
