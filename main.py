@@ -19,7 +19,7 @@ DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
 THE_ODDS_API_KEY = os.getenv("THE_ODDS_API_KEY")
 
 # Config
-MIN_EV = 0.00  # alert bets with >5% EV
+MIN_EV = 0.05  # alert bets with >5% EV
 SCAN_MINUTES = 3
 DB_FILE = "sent.db"
 
@@ -70,35 +70,43 @@ def gamdom_feed():
         try:
             r = requests.get(url, timeout=10)
             r.raise_for_status()
-            events = r.json()  # Gamdom sometimes returns JSON with XML inside; handle accordingly
+            events = r.json()  # Gamdom may return JSON array
             for event in events:
-                # If XML inside string, parse:
-                if isinstance(event, str) and event.strip().startswith("<"):
-                    root = ET.fromstring(event)
-                else:
-                    root = event  # assume dict
-                match_name = root.get("Descripcion") or root.get("name") or "Unknown match"
-                kickoff = root.get("FechaPlanInicioPartido") or ""
-                for market in root.get("Modalidades", []):
-                    for m_item in market.get("item", []):
-                        market_type = m_item.get("Modalidad") or m_item.get("name")
-                        if market_type not in ("1X2", "Match Winner"):
+                # XML inside string
+                xml_content = event if isinstance(event, str) else event.get("XML")  # adjust if needed
+                if not xml_content:
+                    continue
+                try:
+                    root = ET.fromstring(xml_content)
+                except:
+                    continue
+
+                match_name = root.findtext("Descripcion") or "Unknown match"
+                kickoff = root.findtext("FechaPlanInicioPartido") or ""
+                try:
+                    home, away = [normalize_team(x.strip()) for x in match_name.split(" vs ")]
+                except:
+                    home = away = ""
+
+                for market in root.findall(".//Modalidades/item"):
+                    market_type = market.findtext("Modalidad")
+                    if market_type not in ("1X2", "Match Winner"):
+                        continue
+                    for offer in market.findall("Ofertas/item"):
+                        outcome = offer.findtext("OfertaEvento")
+                        odd_text = offer.findtext("CotizacionWeb") or offer.findtext("CotizacionTicket")
+                        if not outcome or not odd_text:
                             continue
-                        for offer in m_item.get("Ofertas", {}).get("item", []):
-                            outcome = offer.get("OfertaEvento") or offer.get("name")
-                            odd = offer.get("CotizacionWeb") or offer.get("CotizacionTicket") or offer.get("odds")
-                            if not odd:
-                                continue
-                            odds.append({
-                                "book": "Gamdom",
-                                "match": match_name,
-                                "home": normalize_team(match_name.split(" vs ")[0]),
-                                "away": normalize_team(match_name.split(" vs ")[1]),
-                                "market": market_type,
-                                "outcome": outcome,
-                                "odd": float(odd),
-                                "kickoff": kickoff
-                            })
+                        odds.append({
+                            "book": "Gamdom",
+                            "match": match_name,
+                            "home": home,
+                            "away": away,
+                            "market": market_type,
+                            "outcome": outcome,
+                            "odd": float(odd_text),
+                            "kickoff": kickoff
+                        })
         except Exception as e:
             print(f"❌ Error fetching Gamdom {league_name}: {e}")
     return odds
@@ -106,6 +114,9 @@ def gamdom_feed():
 # ---------- Pinnacle feed via The Odds API ----------
 def pinnacle_feed(sport_key="soccer"):
     odds = {}
+    if not THE_ODDS_API_KEY:
+        print("❌ THE_ODDS_API_KEY not set")
+        return odds
     url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
     params = {
         'apiKey': THE_ODDS_API_KEY,
@@ -119,17 +130,23 @@ def pinnacle_feed(sport_key="soccer"):
         r.raise_for_status()
         data = r.json()
         for event in data:
-            home_norm = normalize_team(event['home_team'])
-            away_norm = normalize_team(event['away_team'])
-            match_key = f"{home_norm} vs {away_norm}"
+            home = normalize_team(event.get("home_team", ""))
+            away = normalize_team(event.get("away_team", ""))
+            if not home or not away:
+                continue
+            match_key = f"{home} vs {away}"
             for bookmaker in event.get("bookmakers", []):
-                if bookmaker["key"] != "pinnacle":
+                if bookmaker.get("key") != "pinnacle":
                     continue
                 for market in bookmaker.get("markets", []):
-                    if market["key"] != "h2h":
+                    if market.get("key") != "h2h":
                         continue
-                    for outcome, odd in zip(market["outcomes"], market["odds"]):
-                        odds[(match_key, outcome)] = odd
+                    for outcome in market.get("outcomes", []):
+                        name = outcome.get("name")
+                        price = outcome.get("price")
+                        if not name or not price:
+                            continue
+                        odds[(match_key, name)] = price
     except Exception as e:
         print("❌ Pinnacle feed error:", e)
     return odds
