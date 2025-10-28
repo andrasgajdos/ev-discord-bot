@@ -14,7 +14,8 @@ print = functools.partial(builtins.print, flush=True)
 # Load environment variables
 load_dotenv()
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
-ODDSAPI_KEY = os.getenv("THE_ODDS_API_KEY")  # ✅ Fixed variable name
+ODDSAPI_KEY = os.getenv("THE_ODDS_API_KEY") # ✅ Fixed variable name
+print("DEBUG: THE_ODDS_API_KEY =", ODDSAPI_KEY)
 
 # ---------- Config ----------
 MIN_EV = 0.0          # Minimum EV to alert
