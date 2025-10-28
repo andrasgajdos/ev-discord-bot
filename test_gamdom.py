@@ -1,54 +1,43 @@
-import time
 import json
-import traceback
+import time
+import random
 from playwright.sync_api import sync_playwright
 
-def fetch_gamdom_odds():
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        try:
-            print("🔍 Loading Gamdom sports page…")
-            page.goto("https://gamdom.com/sports", timeout=60000)
+with sync_playwright() as p:
+    browser = p.chromium.launch(headless=True)
+    page = browser.new_page()
+    page.goto("https://gamdom.com/sports")
 
-            # wait a few seconds for JS to render
-            time.sleep(5)
+    # wait a few seconds for JS to load the data
+    time.sleep(random.uniform(3, 5))
 
-            # grab the inline JSON from window.__INITIAL_STATE__
-            js_data = page.evaluate("() => window.__INITIAL_STATE__")
-            if not js_data or "sports" not in js_data:
-                print("❌ No sports data found in Gamdom page")
-                return []
+    # grab the inline JS state directly
+    data = page.evaluate("() => window.__INITIAL_STATE__")
+    if not data:
+        print("❌ Could not find INITIAL_STATE")
+        browser.close()
+        exit()
 
-            sports = js_data["sports"]
-            print(f"📥 Found {len(sports)} sports")
+    print("📥 Gamdom data found")
 
-            # parse odds
-            odds = []
-            for sport in sports:
-                for league in sport.get("leagues", []):
-                    for match in league.get("matches", []):
-                        for market in match.get("markets", []):
-                            if market.get("name") not in ("1X2", "Match Winner"):
-                                continue
-                            for sel in market.get("selections", []):
-                                odds.append({
-                                    "book": "gamdom",
-                                    "match": f"{match.get('home')} vs {match.get('away')}",
-                                    "market": market.get("name"),
-                                    "outcome": sel.get("name"),
-                                    "odd": float(sel.get("odds", 0))
-                                })
-            print(f"✅ Parsed {len(odds)} outcomes")
-            return odds
+    odds = []
+    for sport in data.get("sports", []):
+        for league in sport.get("leagues", []):
+            for match in league.get("matches", []):
+                for market in match.get("markets", []):
+                    if market.get("name") not in ("1X2", "Match Winner"):
+                        continue
+                    for sel in market.get("selections", []):
+                        odds.append({
+                            "book": "gamdom",
+                            "match": f"{match['home']} vs {match['away']}",
+                            "market": market["name"],
+                            "outcome": sel["name"],
+                            "odd": float(sel["odds"])
+                        })
 
-        except Exception as e:
-            print("💥 Gamdom fetch failed:", traceback.format_exc())
-            return []
-        finally:
-            browser.close()
-
-if __name__ == "__main__":
-    odds = fetch_gamdom_odds()
-    for o in odds[:10]:  # print first 10 for testing
+    print(f"✅ Parsed {len(odds)} outcomes")
+    for o in odds[:10]:  # show first 10 for a quick check
         print(o)
+
+    browser.close()
