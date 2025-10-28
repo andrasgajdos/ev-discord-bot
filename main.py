@@ -69,18 +69,32 @@ def normalize_team(name):
 
 # ---------- feeds ----------
 def gamdom_feed():
-    """Fetch all matches from Gamdom."""
+    """Fetch all matches from Gamdom with proper headers and params."""
     all_odds = []
-    for league_id, url in GAMDOM_LEAGUES.items():
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Referer": "https://sb.gamdom.onebittech.com",
+        "Accept-Language": "en",
+    }
+
+    for league_id, base_url in GAMDOM_LEAGUES.items():
+        params = {
+            "IdInstanciaTorneo": league_id,
+            "IdProveedor": 20,
+            "Modo": "W",
+            "rid": 781273  # you can generate or ignore if optional
+        }
         try:
-            resp = requests.get(url, timeout=10)
+            resp = requests.get(base_url, headers=headers, params=params, timeout=10)
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
             print(f"❌ Gamdom fetch error for league {league_id}:", e)
             continue
 
-        # Handle both list and dict responses
+        # Handle list/dict
         if isinstance(data, list):
             matches = data
         elif isinstance(data, dict):
