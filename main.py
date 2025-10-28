@@ -7,7 +7,6 @@ import functools
 import builtins
 import unicodedata
 from dotenv import load_dotenv
-from pprint import pprint
 
 # Always flush print output
 print = functools.partial(builtins.print, flush=True)
@@ -29,7 +28,6 @@ LEAGUE_MAP = {
     95: "soccer_england_premier_league",
     29: "soccer_spain_la_liga",
     116: "soccer_france_ligue_one",
-    # Add more as needed
 }
 
 GAMDOM_LEAGUES = {
@@ -82,7 +80,15 @@ def gamdom_feed():
             print(f"❌ Gamdom fetch error for league {league_id}:", e)
             continue
 
-        for match in data.get("matches", data):  # handle if nested or flat
+        # Handle both list and dict responses
+        if isinstance(data, list):
+            matches = data
+        elif isinstance(data, dict):
+            matches = data.get("matches", [])
+        else:
+            matches = []
+
+        for match in matches:
             home = match.get("home")
             away = match.get("away")
             for market in match.get("markets", []):
@@ -156,7 +162,7 @@ def scan():
         if sharp:
             all_sharp.update(sharp)
 
-    # Compare
+    # Compare and send Discord alerts
     for row in soft_odds:
         key = (normalize_team(f"{row['home']} vs {row['away']}"), row["outcome"])
         if key not in all_sharp:
