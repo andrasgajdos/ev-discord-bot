@@ -1,44 +1,34 @@
-import time
+# test_gamdom.py
+
+import requests
 import json
-from playwright.sync_api import sync_playwright
 
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=True)
-    page = browser.new_page()
-    
-    print("🔍 Navigating to Gamdom...")
-    page.goto("https://gamdom.com/sports")
-    
-    # Wait a few seconds for JavaScript to populate window.__INITIAL_STATE__
-    time.sleep(5)
+def fetch_gamdom_odds():
+    url = "https://gamdom.eu/sports/partidos"
+    try:
+        print("🔍 Fetching Gamdom odds…")
+        r = requests.get(url, timeout=10)
+        if r.status_code != 200:
+            print(f"❌ Request failed, status code: {r.status_code}")
+            return None
+        
+        data = r.json()
+        print(f"✅ Success! Fetched {len(data.get('matches', []))} matches")  # number of matches
+        return data
 
-    # Grab the live state directly from the page
-    state = page.evaluate("() => window.__INITIAL_STATE__")
-    if not state:
-        print("❌ No __INITIAL_STATE__ found")
-        browser.close()
-        exit()
+    except Exception as e:
+        print("❌ Error fetching Gamdom odds:", e)
+        return None
 
-    print("📥 Found __INITIAL_STATE__")
-    
-    odds = []
-    for sport in state.get("sports", []):
-        for league in sport.get("leagues", []):
-            for match in league.get("matches", []):
-                for market in match.get("markets", []):
-                    if market.get("name") not in ("1X2", "Match Winner"):
-                        continue
-                    for sel in market.get("selections", []):
-                        odds.append({
-                            "book": "gamdom",
-                            "match": f"{match['home']} vs {match['away']}",
-                            "market": market["name"],
-                            "outcome": sel["name"],
-                            "odd": float(sel["odds"])
-                        })
-
-    print(f"✅ Parsed {len(odds)} outcomes")
-    for o in odds[:10]:  # print first 10 as a sample
-        print(o)
-
-    browser.close()
+if __name__ == "__main__":
+    matches = fetch_gamdom_odds()
+    if matches:
+        # Print first match as a quick test
+        if matches.get("matches"):
+            first = matches["matches"][0]
+            print("First match example:")
+            print(json.dumps(first, indent=2))
+        else:
+            print("No matches found in response.")
+    else:
+        print("Failed to fetch Gamdom data.")
