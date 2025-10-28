@@ -46,76 +46,44 @@ def mark_sent(key):
 
 # ---------- feeds ----------
 def fetch_gamdom():
-    """Fetch Gamdom pre-match odds. Tries JSON API first, then falls back to HTML scrape."""
-    import re, html, json
-    url_api  = "https://gamdom.eu/sports/data/matches"
-    url_page = "https://gamdom.eu/sports"
+    """Live scrape Gamdom decimal odds – public /partidos endpoint."""
+    url = "https://gamdom.com/sports/partidos?modo=T&sportType=T&rid=907788"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json,text/html",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache"
+        "Accept": "application/json",
+        "Referer": "https://gamdom.com/sports"
     }
 
-    data = None
     try:
-        # ---- Try official JSON endpoint ----
-        print("🔍 Gamdom fetch JSON API…")
-        time.sleep(random.uniform(1, 3))
-        r = requests.get(url_api, headers=headers, timeout=10)
-        print("Gamdom API status:", r.status_code, "len:", len(r.text))
-        if r.status_code == 200 and len(r.text) > 100:
-            data = r.json()
-            print("📥 Gamdom JSON API parsed")
-        else:
-            print("Gamdom API empty or blocked, will try HTML scrape")
-    except Exception as e:
-        print("Gamdom API fail:", e)
-
-    # ---- Fallback to HTML scrape ----
-    if data is None:
-        try:
-            print("🔍 Gamdom fetch HTML page…")
-            time.sleep(random.uniform(2, 4))
-            r = requests.get(url_page, headers=headers, timeout=10)
-            print("Gamdom page status:", r.status_code, "len:", len(r.text))
-            if r.status_code < 200 or len(r.text) < 100:
-                print("Gamdom page bad, abort")
-                return []
-
-            print("Gamdom first 1000 chars:", r.text[:1000])
-            match = re.search(r'window\.__INITIAL_STATE__\s*=\s*(\{.*\})\s*;', r.text, re.DOTALL)
-            if not match:
-                print("Gamdom no inline JSON found")
-                return []
-
-            raw = html.unescape(match.group(1))
-            data = json.loads(raw)
-            print("📥 Gamdom inline JSON parsed")
-        except Exception as e:
-            print("❌ Gamdom fallback fail:", traceback.format_exc())
+        print("🔍 Gamdom /partidos fetch…")
+        time.sleep(random.uniform(2, 4))                       # polite
+        r = requests.get(url, headers=headers, timeout=10)
+        print("Gamdom status:", r.status_code, "len:", len(r.text))
+        if r.status_code != 200:
+            print("Gamdom non-200:", r.text[:200])
             return []
+        data = r.json()
+        print("📥 Gamdom payload received")
+    except Exception as e:
+        print("❌ Gamdom fail:", traceback.format_exc())
+        return []
 
-    # ---- Parse odds ----
     odds = []
-    for sport in data.get("sports", []):
-        for league in sport.get("leagues", []):
-            for match in league.get("matches", []):
-                for market in match.get("markets", []):
-                    if market.get("name") not in ("1X2", "Match Winner"):
-                        continue
-                    for sel in market.get("selections", []):
-                        try:
-                            odds.append({
-                                "book": "gamdom",
-                                "match": f"{match['home']} vs {match['away']}",
-                                "market": market["name"],
-                                "outcome": sel["name"],
-                                "odd": float(sel["odds"])
-                            })
-                        except Exception as e:
-                            print("❌ Gamdom parse error:", e)
+    for match in data:                                # root is list
+        for market in match.get("markets", []):
+            if market.get("name") not in ("1X2", "Match Winner"):
+                continue
+            for sel in market.get("selections", []):
+                try:
+                    odds.append({
+                        "book": "gamdom",
+                        "match": f"{match['home']} vs {match['away']}",
+                        "market": market["name"],
+                        "outcome": sel["name"],
+                        "odd": float(sel["odds"])
+                    })
+                except (KeyError, ValueError, TypeError):
+                    continue
     print(f"✅ Gamdom parsed {len(odds)} outcomes")
     return odds
 
