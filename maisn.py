@@ -70,7 +70,7 @@ def normalize_team(name):
 
 # ---------- Feeds ----------
 def gamdom_feed():
-    """Fetch all matches from Gamdom."""
+    """Fetch all matches from Gamdom and parse odds correctly."""
     all_odds = []
     headers = {
         "User-Agent": "Mozilla/5.0",
@@ -96,12 +96,18 @@ def gamdom_feed():
         print(f"DEBUG: league {league_id} returned {len(matches)} items")
 
         for match in matches:
-            desc = match.get("Descripcion", "")
-            if " vs " in desc:
-                home_name, away_name = [x.strip() for x in desc.split(" vs ")]
-            else:
-                home_name = match.get("EquipoLocalNombre", "Unknown")
-                away_name = match.get("EquipoVisitanteNombre", "Unknown")
+            # Try several fallbacks for team names
+            home_name = match.get("EquipoLocalNombre") or "Unknown"
+            away_name = match.get("EquipoVisitanteNombre") or "Unknown"
+
+            # Fallback to 'Competidores' if still unknown
+            if home_name == "Unknown" or away_name == "Unknown":
+                comp = match.get("Competidores", [])
+                if len(comp) >= 2:
+                    home_name = home_name if home_name != "Unknown" else comp[0].get("Nombre", "Unknown")
+                    away_name = away_name if away_name != "Unknown" else comp[1].get("Nombre", "Unknown")
+
+            match_desc = f"{home_name} vs {away_name}"
 
             for mod in match.get("Modalidades", []):
                 market_name = mod.get("Modalidad", "Unknown")
@@ -116,11 +122,11 @@ def gamdom_feed():
                     elif localia == 2:
                         outcome_team = away_name
                     else:
-                        outcome_team = oferta.get("OfertaEvento")
+                        outcome_team = oferta.get("OfertaEvento")  # draw, over/under, etc.
 
                     all_odds.append({
                         "league_id": league_id,
-                        "match": f"{home_name} vs {away_name}",
+                        "match": match_desc,
                         "home": home_name,
                         "away": away_name,
                         "market": market_name,
