@@ -46,7 +46,7 @@ def mark_sent(key):
 
 # ---------- feeds ----------
 def fetch_gamdom():
-    """Live scrape Gamdom decimal odds – public /partidos endpoint."""
+    """Live scrape Gamdom decimal odds – /partidos endpoint."""
     url = "https://gamdom.com/sports/partidos?modo=T&sportType=T&rid=907788"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -56,12 +56,13 @@ def fetch_gamdom():
 
     try:
         print("🔍 Gamdom /partidos fetch…")
-        time.sleep(random.uniform(2, 4))                       # polite
+        time.sleep(random.uniform(2, 4))
         r = requests.get(url, headers=headers, timeout=10)
         print("Gamdom status:", r.status_code, "len:", len(r.text))
         if r.status_code != 200:
             print("Gamdom non-200:", r.text[:200])
             return []
+        print("Gamdom first 500 chars:", r.text[:500])
         data = r.json()
         print("📥 Gamdom payload received")
     except Exception as e:
@@ -69,7 +70,7 @@ def fetch_gamdom():
         return []
 
     odds = []
-    for match in data:                                # root is list
+    for match in data:                              # root is list
         for market in match.get("markets", []):
             if market.get("name") not in ("1X2", "Match Winner"):
                 continue
