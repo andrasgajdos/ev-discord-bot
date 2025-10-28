@@ -1,4 +1,3 @@
 requests
 python-dotenv
-pip install playwright
-playwright install
+
