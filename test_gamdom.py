@@ -45,10 +45,3 @@ def fetch_gamdom_odds():
         except Exception as e:
             print("💥 Gamdom fetch failed:", traceback.format_exc())
             return []
-        finally:
-            browser.close()
-
-if __name__ == "__main__":
-    odds = fetch_gamdom_odds()
-    for o in odds[:10]:  # print first 10 for testing
-        print(o)
