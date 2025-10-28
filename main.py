@@ -19,7 +19,7 @@ DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
 THE_ODDS_API_KEY = os.getenv("THE_ODDS_API_KEY")
 
 # Config
-MIN_EV = 0.05  # alert bets with >5% EV
+MIN_EV = 0.00  # alert bets with >5% EV
 SCAN_MINUTES = 3
 DB_FILE = "sent.db"
 
