@@ -7,6 +7,7 @@ import functools
 import builtins
 import unicodedata
 from dotenv import load_dotenv
+import json
 
 # Always flush print output
 print = functools.partial(builtins.print, flush=True)
@@ -14,14 +15,13 @@ print = functools.partial(builtins.print, flush=True)
 # Load environment
 load_dotenv()
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
-ODDSAPI_KEY = os.getenv("ODDSAPI_KEY")
 
 # ---------- Config ----------
 MIN_EV = 0.0
 SCAN_MINUTES = 3
 DB_FILE = "sent.db"
 
-# Mapping Gamdom league IDs → Pinnacle sport_keys
+# Mapping Gamdom league IDs → names (for debug)
 LEAGUE_MAP = {
     56: "soccer_italy_serie_a",
     90: "soccer_germany_bundesliga",
@@ -72,36 +72,39 @@ def gamdom_feed():
     """Fetch all matches from Gamdom using CotizacionWeb for real odds."""
     all_odds = []
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0",
         "Accept": "application/json",
         "Referer": "https://sb.gamdom.onebittech.com",
-        "Accept-Language": "en",
     }
 
-    for league_id, base_url in GAMDOM_LEAGUES.items():
+    for league_id, url in GAMDOM_LEAGUES.items():
         try:
-            resp = requests.get(base_url, headers=headers, timeout=10)
+            resp = requests.get(url, headers=headers, timeout=10)
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
-            print(f"❌ Gamdom fetch error for league {league_id}:", e)
+            print(f"❌ Gamdom fetch error for league {league_id}: {e}")
             continue
 
-        print(f"DEBUG: league {league_id} returned {len(data)} items")
-
-        if not data:
+        matches = data.get("matches") if isinstance(data, dict) else data
+        if not matches:
+            print(f"⚠️ No matches found for league {league_id}")
             continue
 
-        for match in data:
-            home_name = match.get("home") or match.get("EquipoLocalNombre", "Unknown")
-            away_name = match.get("away") or match.get("EquipoVisitanteNombre", "Unknown")
+        print(f"DEBUG: league {league_id} returned {len(matches)} items")
 
-            # Each match has 'Modalidades' → 'Ofertas'
-            for modalidad in match.get("Modalidades", []):
-                market_name = modalidad.get("Modalidad", "Unknown")
-                for oferta in modalidad.get("Ofertas", []):
-                    odd = oferta.get("CotizacionWeb")  # use the real web odds
+        for match in matches:
+            desc = match.get("Descripcion", "")
+            if " vs " in desc:
+                home_name, away_name = [x.strip() for x in desc.split(" vs ")]
+            else:
+                home_name = match.get("EquipoLocalNombre", "Unknown")
+                away_name = match.get("EquipoVisitanteNombre", "Unknown")
+
+            for mod in match.get("Modalidades", []):
+                market_name = mod.get("Modalidad", "Unknown")
+                for oferta in mod.get("Ofertas", []):
+                    odd = oferta.get("CotizacionWeb")  # real web odds
                     if not odd:
                         continue
 
@@ -126,31 +129,10 @@ def gamdom_feed():
     print(f"✅ Total matches fetched: {len(all_odds)}")
     return all_odds
 
-def pinnacle_feed(league_id):
-    """Fetch Pinnacle odds for a specific league."""
-    sport_key = LEAGUE_MAP.get(league_id)
-    if not sport_key:
-        return {}
-
-    url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
-    params = {
-        "regions": "eu",
-        "markets": "h2h",
-        "oddsFormat": "decimal",
-        "bookmakers": "pinnacle",
-        "apiKey": ODDSAPI_KEY
-    }
-
-    try:
-        resp = requests.get(url, params=params, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        print(f"❌ Pinnacle fetch error for {sport_key}:", e)
-        return {}
-
+def pinnacle_feed_from_json(json_data):
+    """Parse Pinnacle JSON directly."""
     sharp_odds = {}
-    for m in data:
+    for m in json_data:
         home = normalize_team(m["home_team"])
         away = normalize_team(m["away_team"])
         for book in m.get("bookmakers", []):
@@ -165,7 +147,7 @@ def pinnacle_feed(league_id):
     return sharp_odds
 
 # ---------- EV scan ----------
-def scan():
+def scan(pinnacle_json):
     init_db()
     print(f"[{datetime.datetime.now(datetime.timezone.utc):%Y-%m-%d %H:%M:%S}] scanning…")
 
@@ -174,13 +156,7 @@ def scan():
         print("❌ No Gamdom odds fetched")
         return
 
-    # Group soft odds by league to query Pinnacle once per league
-    leagues = set(row["league_id"] for row in soft_odds)
-    all_sharp = {}
-    for league_id in leagues:
-        sharp = pinnacle_feed(league_id)
-        if sharp:
-            all_sharp.update(sharp)
+    all_sharp = pinnacle_feed_from_json(pinnacle_json)
 
     # Compare and send Discord alerts
     for row in soft_odds:
@@ -209,9 +185,13 @@ def scan():
 
 # ---------- main loop ----------
 if __name__ == "__main__":
+    # Load Pinnacle JSON from file or environment
+    with open("pinnacle.json", "r") as f:
+        pinnacle_json = json.load(f)
+
     while True:
         try:
-            scan()
+            scan(pinnacle_json)
             print(f"😴 sleeping {SCAN_MINUTES} min…")
         except Exception as e:
             print("💥 Crash:", e)
