@@ -68,11 +68,14 @@ def normalize_team(name):
 
 # ---------- feeds ----------
 def gamdom_feed():
-    """Fetch all matches from Gamdom using new JSON structure."""
+    """Fetch all matches from Gamdom and parse odds correctly."""
     all_odds = []
     headers = {
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
         "Accept": "application/json",
+        "Referer": "https://sb.gamdom.onebittech.com",
+        "Accept-Language": "en",
     }
 
     for league_id, base_url in GAMDOM_LEAGUES.items():
@@ -84,31 +87,34 @@ def gamdom_feed():
             print(f"❌ Gamdom fetch error for league {league_id}:", e)
             continue
 
+        # DEBUG: see how many items returned per league
         print(f"DEBUG: league {league_id} returned {len(data)} items")
 
-        if not isinstance(data, list):
-            print(f"⚠️ Unexpected JSON for league {league_id}: {data}")
+        if not data:
+            print(f"⚠️ No matches found for league {league_id}")
             continue
 
         for match in data:
-            home = match.get("home_team")
-            away = match.get("away_team")
-            match_name = f"{home} vs {away}"
+            home_name = match.get("home") or match.get("EquipoLocalNombre", "Unknown")
+            away_name = match.get("away") or match.get("EquipoVisitanteNombre", "Unknown")
 
-            for bookmaker in match.get("bookmakers", []):
-                for market in bookmaker.get("markets", []):
-                    if market.get("key") not in ("h2h", "1X2"):
+            for market in match.get("markets", []):
+                market_name = market.get("name") or "Unknown"
+                for selection in market.get("selections", []):
+                    odd = selection.get("odds") or selection.get("CotizacionTicket")
+                    if not odd:
                         continue
-                    for outcome in market.get("outcomes", []):
-                        all_odds.append({
-                            "league_id": league_id,
-                            "match": match_name,
-                            "home": home,
-                            "away": away,
-                            "market": market.get("key"),
-                            "outcome": outcome.get("name"),
-                            "odd": float(outcome.get("price"))
-                        })
+
+                    outcome_team = selection.get("name") or selection.get("OfertaEvento")
+                    all_odds.append({
+                        "league_id": league_id,
+                        "match": f"{home_name} vs {away_name}",
+                        "home": home_name,
+                        "away": away_name,
+                        "market": market_name,
+                        "outcome": outcome_team,
+                        "odd": float(odd)
+                    })
 
     print(f"✅ Total matches fetched: {len(all_odds)}")
     return all_odds
