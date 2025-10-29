@@ -1,3 +1,7 @@
 requests
 python-dotenv
+selenium
+undetected-chromedriver
+webdriver-manager
+fake-useragent
 
