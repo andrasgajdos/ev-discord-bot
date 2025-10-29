@@ -7,6 +7,15 @@ import functools
 import builtins
 import unicodedata
 from dotenv import load_dotenv
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
+from fake_useragent import UserAgent
+from bs4 import BeautifulSoup
+import random
 
 # Always flush print output
 print = functools.partial(builtins.print, flush=True)
@@ -14,20 +23,19 @@ print = functools.partial(builtins.print, flush=True)
 # Load environment
 load_dotenv()
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
-ODDSAPI_KEY = os.getenv("ODDSAPI_KEY")
 
 # ---------- Config ----------
 MIN_EV = 0.0
 SCAN_MINUTES = 3
 DB_FILE = "sent.db"
 
-# Mapping Gamdom league IDs → Pinnacle sport_keys
+# Mapping Gamdom league IDs → Pinnacle league URLs
 LEAGUE_MAP = {
-    56: "soccer_italy_serie_a",
-    90: "soccer_germany_bundesliga",
-    95: "soccer_england_premier_league",
-    29: "soccer_spain_la_liga",
-    116: "soccer_france_ligue_one",
+    56: "https://www.pinnacle.com/en/soccer/italy-serie-a/matchups/",  # Serie A
+    90: "https://www.pinnacle.com/en/soccer/germany-bundesliga/matchups/",  # Bundesliga
+    95: "https://www.pinnacle.com/en/soccer/england-premier-league/matchups/",  # EPL
+    29: "https://www.pinnacle.com/en/soccer/spain-la-liga/matchups/",  # La Liga
+    116: "https://www.pinnacle.com/en/soccer/france-ligue-1/matchups/",  # Ligue 1
 }
 
 GAMDOM_LEAGUES = {
@@ -37,6 +45,13 @@ GAMDOM_LEAGUES = {
     29: "https://api.gamdom.onebittech.com/api/partidos?IdInstanciaTorneo=29",
     116: "https://api.gamdom.onebittech.com/api/partidos?IdInstanciaTorneo=116",
 }
+
+# List of proxies for rotation (replace with real ones; test for speed)
+PROXIES = [
+    "http://1.2.3.4:8080",  # Example; get from free-proxy-list.net or paid
+    "http://5.6.7.8:3128",
+    # Add 10-20 more here
+]
 
 # ---------- helpers ----------
 def send_discord(msg):
@@ -69,7 +84,7 @@ def normalize_team(name):
 
 # ---------- feeds ----------
 def gamdom_feed():
-    """Fetch all matches from Gamdom and parse odds correctly."""
+    """Fetch all matches from Gamdom and parse odds."""
     all_odds = []
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -79,43 +94,48 @@ def gamdom_feed():
         "Accept-Language": "en",
     }
 
-    for league_id, base_url in GAMDOM_LEAGUES.items():
+    for league_id, url in GAMDOM_LEAGUES.items():
         try:
-            resp = requests.get(base_url, headers=headers, timeout=10)
+            resp = requests.get(url, headers=headers, timeout=10)
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
             print(f"❌ Gamdom fetch error for league {league_id}:", e)
             continue
 
-        # Gamdom returns 'matches' list or full list directly
         matches = data.get("matches") if isinstance(data, dict) else data
         if not matches:
             print(f"⚠️ No matches found for league {league_id}")
             continue
 
         for match in matches:
-            desc = match.get("Descripcion", "")
-            if " vs " in desc:
-                home_name, away_name = [x.strip() for x in desc.split(" vs ")]
-            else:
-                home_name = match.get("EquipoLocalNombre", "Unknown")
-                away_name = match.get("EquipoVisitanteNombre", "Unknown")
+            home_name = match.get("EquipoLocalNombre", "")
+            away_name = match.get("EquipoVisitanteNombre", "")
+            if not home_name or not away_name:
+                desc = match.get("Descripcion", "")
+                if " vs " in desc:
+                    home_name, away_name = [x.strip() for x in desc.split(" vs ")]
+                else:
+                    continue  # skip if no proper names
 
             for mod in match.get("Modalidades", []):
-                market_name = mod.get("Modalidad", "Unknown")
+                market_name = mod.get("Modalidad")
+                if not market_name:
+                    continue
                 for oferta in mod.get("Ofertas", []):
-                    odd = oferta.get("CotizacionTicket")
+                    odd = oferta.get("CotizacionWeb")
                     if not odd:
                         continue
 
                     localia = oferta.get("Localia")
                     if localia == 1:
-                        outcome_team = home_name
+                        outcome = home_name
                     elif localia == 2:
-                        outcome_team = away_name
+                        outcome = away_name
                     else:
-                        outcome_team = oferta.get("OfertaEvento")
+                        outcome = oferta.get("OfertaEvento")
+                        if not outcome:
+                            continue
 
                     all_odds.append({
                         "league_id": league_id,
@@ -123,50 +143,81 @@ def gamdom_feed():
                         "home": home_name,
                         "away": away_name,
                         "market": market_name,
-                        "outcome": outcome_team,
+                        "outcome": outcome,
                         "odd": float(odd)
                     })
 
-    print(f"✅ Total matches fetched: {len(all_odds)}")
+    print(f"✅ Total Gamdom odds fetched: {len(all_odds)}")
     return all_odds
 
-def pinnacle_feed(league_id):
-    """Fetch Pinnacle odds for a specific league."""
-    sport_key = LEAGUE_MAP.get(league_id)
-    if not sport_key:
-        return {}
+def pinnacle_feed(league_id, retries=3):
+    """Scrape Pinnacle odds for a league illegally (free, no API key needed), with retries."""
+    for attempt in range(retries):
+        url = LEAGUE_MAP.get(league_id)
+        if not url:
+            return {}
 
-    url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
-    params = {
-        "regions": "eu",
-        "markets": "h2h",
-        "oddsFormat": "decimal",
-        "bookmakers": "pinnacle",
-        "apiKey": ODDSAPI_KEY
-    }
+        # Set up headless Chrome with anti-detection
+        ua = UserAgent()
+        options = webdriver.ChromeOptions()
+        options.add_argument("--headless")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--disable-images")
+        options.add_argument(f"--user-agent={ua.random}")
+        options.add_argument("--window-size=1920,1080")
 
-    try:
-        resp = requests.get(url, params=params, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        print(f"❌ Pinnacle fetch error for {sport_key}:", e)
-        return {}
+        # Rotate proxy (pick random from list)
+        proxy = random.choice(PROXIES) if PROXIES else None
+        if proxy:
+            options.add_argument(f"--proxy-server={proxy}")
 
-    sharp_odds = {}
-    for m in data:
-        home = normalize_team(m["home_team"])
-        away = normalize_team(m["away_team"])
-        for book in m.get("bookmakers", []):
-            if book["key"] != "pinnacle":
-                continue
-            for market in book.get("markets", []):
-                if market["key"] != "h2h":
+        driver = None
+        try:
+            service = webdriver.ChromeService(executable_path=ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=options)
+            driver.get(url)
+            WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.XPATH, "//span[contains(@class, 'participant')]"))
+            )
+
+            soup = BeautifulSoup(driver.page_source, 'html.parser')
+            events = soup.find_all('div', class_=lambda c: c and ('event' in c or 'row' in c))
+
+            sharp_odds = {}
+            for event in events:
+                teams = event.find_all('span', class_=lambda c: c and 'participant' in c)
+                if len(teams) < 2:
                     continue
-                for outcome in market.get("outcomes", []):
-                    key = (f"{home} vs {away}", outcome["name"])
-                    sharp_odds[key] = outcome["price"]
-    return sharp_odds
+                home_team = teams[0].text.strip()
+                away_team = teams[1].text.strip()
+
+                odds_elements = event.find_all('span', class_=lambda c: c and 'price' in c)
+                if len(odds_elements) < 3:
+                    continue
+                home_odd = float(odds_elements[0].text.strip())
+                away_odd = float(odds_elements[2].text.strip())
+
+                home_norm = normalize_team(home_team)
+                away_norm = normalize_team(away_team)
+                match_key = f"{home_norm} vs {away_norm}"
+                sharp_odds[(match_key, home_team)] = home_odd
+                sharp_odds[(match_key, away_team)] = away_odd
+
+            print(f"✅ Scraped {len(sharp_odds)} Pinnacle odds for league {league_id} on attempt {attempt+1}")
+            return sharp_odds
+
+        except Exception as e:
+            print(f"❌ Attempt {attempt+1} failed for league {league_id}: {e}")
+            time.sleep(random.randint(5, 10))
+        finally:
+            if driver:
+                driver.quit()
+
+    print(f"❌ All retries failed for league {league_id}")
+    return {}
 
 # ---------- EV scan ----------
 def scan():
@@ -178,15 +229,14 @@ def scan():
         print("❌ No Gamdom odds fetched")
         return
 
-    # Group soft odds by league to query Pinnacle once per league
     leagues = set(row["league_id"] for row in soft_odds)
     all_sharp = {}
     for league_id in leagues:
         sharp = pinnacle_feed(league_id)
         if sharp:
             all_sharp.update(sharp)
+        time.sleep(random.randint(10, 30))  # Anti-ban delay between leagues
 
-    # Compare and send Discord alerts
     for row in soft_odds:
         key = (normalize_team(f"{row['home']} vs {row['away']}"), row["outcome"])
         if key not in all_sharp:
