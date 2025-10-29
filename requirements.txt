@@ -4,4 +4,4 @@ selenium
 undetected-chromedriver
 webdriver-manager
 fake-useragent
-
+beautifulsoup4
