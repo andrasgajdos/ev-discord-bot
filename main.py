@@ -88,7 +88,8 @@ def gamdom_feed():
     """Fetch all matches from Gamdom and parse odds."""
     all_odds = []
     headers = {
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
         "Accept": "application/json",
         "Referer": "https://sb.gamdom.onebittech.com",
         "Accept-Language": "en",
@@ -123,7 +124,7 @@ def gamdom_feed():
                 if not market_name:
                     continue
                 for oferta in mod.get("Ofertas", []):
-                    odd = oferta.get("CotizacionTicket")
+                    odd = oferta.get("CotizacionWeb")
                     if not odd:
                         continue
 
@@ -150,75 +151,80 @@ def gamdom_feed():
     print(f"✅ Total Gamdom odds fetched: {len(all_odds)}")
     return all_odds
 
-def pinnacle_feed(league_id):
-    """Scrape Pinnacle odds for a league illegally (free, no API key needed)."""
-    url = LEAGUE_MAP.get(league_id)
-    if not url:
-        return {}
+def pinnacle_feed(league_id, retries=3):
+    """Scrape Pinnacle odds for a league (free, no API key needed), with retries."""
+    for attempt in range(retries):
+        url = LEAGUE_MAP.get(league_id)
+        if not url:
+            return {}
 
-    # Set up headless Chrome with anti-detection
-    ua = UserAgent()
-    options = ChromeOptions()
-    options.add_argument("--headless")  # No UI
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--disable-extensions")
-    options.add_argument("--disable-images")  # Faster loading
-    options.add_argument(f"--user-agent={ua.random}")  # Rotate UA
-    options.add_argument("--window-size=1920,1080")
+        # Set up headless Chrome with anti-detection
+        ua = UserAgent()
+        options = ChromeOptions()
+        options.add_argument("--headless")  # No UI
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--disable-images")  # Faster loading
+        options.add_argument(f"--user-agent={ua.random}")  # Rotate UA
+        options.add_argument("--window-size=1920,1080")
 
-    # Rotate proxy (pick random from list)
-    proxy = random.choice(PROXIES) if PROXIES else None
-    if proxy:
-        options.add_argument(f"--proxy-server={proxy}")
+        # Rotate proxy (pick random from list)
+        proxy = random.choice(PROXIES) if PROXIES else None
+        if proxy:
+            options.add_argument(f"--proxy-server={proxy}")
 
-    driver = None
-    sharp_odds = {}
-    try:
-        driver = Chrome(options=options, driver_executable_path=ChromeDriverManager().install())
-        driver.get(url)
-        # Wait for odds to load (look for a common element like participant or price)
-        WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.XPATH, "//span[contains(@class, 'participant')]"))  # Better: wait for team names
-        )
+        driver = None
+        try:
+            driver = Chrome(options=options, driver_executable_path=ChromeDriverManager().install())
+            driver.get(url)
+            # Wait for odds to load (look for a common element like participant or price)
+            WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.XPATH, "//span[contains(@class, 'participant')]"))  # Better: wait for team names
+            )
 
-        # Parse the page
-        soup = BeautifulSoup(driver.page_source, 'html.parser')
-        # Pinnacle uses divs or trs for events; try div with class containing 'event' or 'row'
-        events = soup.find_all('div', class_=lambda c: c and ('event' in c or 'row' in c))  # Flexible match
+            # Parse the page
+            soup = BeautifulSoup(driver.page_source, 'html.parser')
+            # Pinnacle uses divs or trs for events; try div with class containing 'event' or 'row'
+            events = soup.find_all('div', class_=lambda c: c and ('event' in c or 'row' in c))  # Flexible match
 
-        for event in events:
-            # Teams: spans with 'participant' in class
-            teams = event.find_all('span', class_=lambda c: c and 'participant' in c)
-            if len(teams) < 2:
-                continue
-            home_team = teams[0].text.strip()
-            away_team = teams[1].text.strip()
+            sharp_odds = {}
+            for event in events:
+                # Teams: spans with 'participant' in class
+                teams = event.find_all('span', class_=lambda c: c and 'participant' in c)
+                if len(teams) < 2:
+                    continue
+                home_team = teams[0].text.strip()
+                away_team = teams[1].text.strip()
 
-            # Odds: spans with 'price' in class (Pinnacle shows 1/X/2 for h2h)
-            odds_elements = event.find_all('span', class_=lambda c: c and 'price' in c)
-            if len(odds_elements) < 3:
-                continue
-            home_odd = float(odds_elements[0].text.strip())
-            draw_odd = float(odds_elements[1].text.strip())
-            away_odd = float(odds_elements[2].text.strip())
+                # Odds: spans with 'price' in class (Pinnacle shows 1/X/2 for h2h)
+                odds_elements = event.find_all('span', class_=lambda c: c and 'price' in c)
+                if len(odds_elements) < 3:
+                    continue
+                home_odd = float(odds_elements[0].text.strip())
+                draw_odd = float(odds_elements[1].text.strip())
+                away_odd = float(odds_elements[2].text.strip())
 
-            # Normalize and store
-            home_norm = normalize_team(home_team)
-            away_norm = normalize_team(away_team)
-            match_key = f"{home_norm} vs {away_norm}"
-            sharp_odds[(match_key, home_team)] = home_odd
-            sharp_odds[(match_key, away_team)] = away_odd
+                # Normalize and store
+                home_norm = normalize_team(home_team)
+                away_norm = normalize_team(away_team)
+                match_key = f"{home_norm} vs {away_norm}"
+                sharp_odds[(match_key, home_team)] = home_odd
+                sharp_odds[(match_key, away_team)] = away_odd
 
-    except Exception as e:
-        print(f"❌ Pinnacle scrape error for league {league_id}: {e}")
-    finally:
-        if driver:
-            driver.quit()
+            print(f"✅ Scraped {len(sharp_odds)} Pinnacle odds for league {league_id} on attempt {attempt+1}")
+            return sharp_odds
 
-    print(f"✅ Scraped {len(sharp_odds)} Pinnacle odds for league {league_id}")
-    return sharp_odds
+        except Exception as e:
+            print(f"❌ Attempt {attempt+1} failed for league {league_id}: {e}")
+            time.sleep(random.randint(5, 10))  # Delay before retry
+        finally:
+            if driver:
+                driver.quit()
+
+    print(f"❌ All retries failed for league {league_id}")
+    return {}
 
 # ---------- EV scan ----------
 def scan():
@@ -236,6 +242,7 @@ def scan():
         sharp = pinnacle_feed(league_id)
         if sharp:
             all_sharp.update(sharp)
+        time.sleep(random.randint(10, 30))  # Anti-ban delay between leagues
 
     for row in soft_odds:
         key = (normalize_team(f"{row['home']} vs {row['away']}"), row["outcome"])
