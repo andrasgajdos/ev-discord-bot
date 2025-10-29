@@ -12,7 +12,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from undetected_chromedriver import Chrome, ChromeOptions
+from selenium import webdriver
 from webdriver_manager.chrome import ChromeDriverManager
 from fake_useragent import UserAgent
 from bs4 import BeautifulSoup
@@ -152,7 +152,7 @@ def gamdom_feed():
     return all_odds
 
 def pinnacle_feed(league_id, retries=3):
-    """Scrape Pinnacle odds for a league (free, no API key needed), with retries."""
+    """Scrape Pinnacle odds for a league illegally (free, no API key needed), with retries."""
     for attempt in range(retries):
         url = LEAGUE_MAP.get(league_id)
         if not url:
@@ -160,14 +160,14 @@ def pinnacle_feed(league_id, retries=3):
 
         # Set up headless Chrome with anti-detection
         ua = UserAgent()
-        options = ChromeOptions()
-        options.add_argument("--headless")  # No UI
+        options = webdriver.ChromeOptions()
+        options.add_argument("--headless")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
         options.add_argument("--disable-extensions")
-        options.add_argument("--disable-images")  # Faster loading
-        options.add_argument(f"--user-agent={ua.random}")  # Rotate UA
+        options.add_argument("--disable-images")
+        options.add_argument(f"--user-agent={ua.random}")
         options.add_argument("--window-size=1920,1080")
 
         # Rotate proxy (pick random from list)
@@ -177,36 +177,30 @@ def pinnacle_feed(league_id, retries=3):
 
         driver = None
         try:
-            driver = Chrome(options=options, driver_executable_path=ChromeDriverManager().install())
+            service = webdriver.ChromeService(executable_path=ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=options)
             driver.get(url)
-            # Wait for odds to load (look for a common element like participant or price)
             WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.XPATH, "//span[contains(@class, 'participant')]"))  # Better: wait for team names
+                EC.presence_of_element_located((By.XPATH, "//span[contains(@class, 'participant')]"))
             )
 
-            # Parse the page
             soup = BeautifulSoup(driver.page_source, 'html.parser')
-            # Pinnacle uses divs or trs for events; try div with class containing 'event' or 'row'
-            events = soup.find_all('div', class_=lambda c: c and ('event' in c or 'row' in c))  # Flexible match
+            events = soup.find_all('div', class_=lambda c: c and ('event' in c or 'row' in c))
 
             sharp_odds = {}
             for event in events:
-                # Teams: spans with 'participant' in class
                 teams = event.find_all('span', class_=lambda c: c and 'participant' in c)
                 if len(teams) < 2:
                     continue
                 home_team = teams[0].text.strip()
                 away_team = teams[1].text.strip()
 
-                # Odds: spans with 'price' in class (Pinnacle shows 1/X/2 for h2h)
                 odds_elements = event.find_all('span', class_=lambda c: c and 'price' in c)
                 if len(odds_elements) < 3:
                     continue
                 home_odd = float(odds_elements[0].text.strip())
-                draw_odd = float(odds_elements[1].text.strip())
                 away_odd = float(odds_elements[2].text.strip())
 
-                # Normalize and store
                 home_norm = normalize_team(home_team)
                 away_norm = normalize_team(away_team)
                 match_key = f"{home_norm} vs {away_norm}"
@@ -218,7 +212,7 @@ def pinnacle_feed(league_id, retries=3):
 
         except Exception as e:
             print(f"❌ Attempt {attempt+1} failed for league {league_id}: {e}")
-            time.sleep(random.randint(5, 10))  # Delay before retry
+            time.sleep(random.randint(5, 10))
         finally:
             if driver:
                 driver.quit()
