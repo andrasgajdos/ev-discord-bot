@@ -15,6 +15,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from undetected_chromedriver import Chrome, ChromeOptions
 from webdriver_manager.chrome import ChromeDriverManager
 from fake_useragent import UserAgent
+from bs4 import BeautifulSoup
 import random
 
 # Always flush print output
@@ -23,9 +24,6 @@ print = functools.partial(builtins.print, flush=True)
 # Load environment
 load_dotenv()
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
-ODDSAPI_KEY = os.getenv("THE_ODDS_API_KEY")
-
-print("DEBUG: Odds API Key loaded:", ODDSAPI_KEY is not None)
 
 # ---------- Config ----------
 MIN_EV = 0.0
@@ -180,33 +178,33 @@ def pinnacle_feed(league_id):
     try:
         driver = Chrome(options=options, driver_executable_path=ChromeDriverManager().install())
         driver.get(url)
-        # Wait for odds to load (adjust timeout if site is slow)
+        # Wait for odds to load (look for a common element like participant or price)
         WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.CLASS_NAME, "event-row"))  # Pinnacle's matchup row class; inspect site if changes
+            EC.presence_of_element_located((By.XPATH, "//span[contains(@class, 'participant')]"))  # Better: wait for team names
         )
 
-        # Parse the page (Pinnacle uses classes like .event-row for matches, .odds for prices)
-        from bs4 import BeautifulSoup  # Add this import at top if needed: from bs4 import BeautifulSoup
+        # Parse the page
         soup = BeautifulSoup(driver.page_source, 'html.parser')
-        events = soup.find_all('div', class_='event-row')  # Container for each match
+        # Pinnacle uses divs or trs for events; try div with class containing 'event' or 'row'
+        events = soup.find_all('div', class_=lambda c: c and ('event' in c or 'row' in c))  # Flexible match
 
         for event in events:
-            # Extract teams (adjust selectors based on Pinnacle's HTML; use browser inspect)
-            teams = event.find_all('span', class_='team-name')  # Example; real might be .participant-name
+            # Teams: spans with 'participant' in class
+            teams = event.find_all('span', class_=lambda c: c and 'participant' in c)
             if len(teams) < 2:
                 continue
             home_team = teams[0].text.strip()
             away_team = teams[1].text.strip()
 
-            # Extract h2h odds (Pinnacle shows 3 odds: home, draw, away)
-            odds_elements = event.find_all('span', class_='odds')  # Adjust to real class (e.g., .price)
+            # Odds: spans with 'price' in class (Pinnacle shows 1/X/2 for h2h)
+            odds_elements = event.find_all('span', class_=lambda c: c and 'price' in c)
             if len(odds_elements) < 3:
                 continue
             home_odd = float(odds_elements[0].text.strip())
-            draw_odd = float(odds_elements[1].text.strip())  # We'll store draw too if needed
+            draw_odd = float(odds_elements[1].text.strip())
             away_odd = float(odds_elements[2].text.strip())
 
-            # Normalize and store (focus on home/away for h2h; skip draw for now)
+            # Normalize and store
             home_norm = normalize_team(home_team)
             away_norm = normalize_team(away_team)
             match_key = f"{home_norm} vs {away_norm}"
@@ -235,7 +233,7 @@ def scan():
     leagues = set(row["league_id"] for row in soft_odds)
     all_sharp = {}
     for league_id in leagues:
-        sharp = pinnacle_feed(league_id, market_type="h2h")
+        sharp = pinnacle_feed(league_id)
         if sharp:
             all_sharp.update(sharp)
 
