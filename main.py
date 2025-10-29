@@ -88,12 +88,19 @@ def gamdom_feed():
     """Fetch all matches from Gamdom and parse odds."""
     all_odds = []
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
-        "Accept": "application/json",
-        "Referer": "https://sb.gamdom.onebittech.com",
-        "Accept-Language": "en",
-    }
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Accept-Language": "en",
+    "Origin": "https://sb.gamdom.onebittech.com",
+    "Referer": "https://sb.gamdom.onebittech.com/",
+    "Sec-CH-UA": '"Google Chrome";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
+    "Sec-CH-UA-Mobile": "?0",
+    "Sec-CH-UA-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-site",
+}
 
     for league_id, url in GAMDOM_LEAGUES.items():
         try:
