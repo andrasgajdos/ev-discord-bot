@@ -32,13 +32,13 @@ MIN_EV = 0.0
 SCAN_MINUTES = 3
 DB_FILE = "sent.db"
 
-# Mapping Gamdom league IDs → Pinnacle sport_keys
+# Mapping Gamdom league IDs → Pinnacle league URLs
 LEAGUE_MAP = {
-    56: "soccer_italy_serie_a",
-    90: "soccer_germany_bundesliga",
-    95: "soccer_epl",
-    29: "soccer_spain_la_liga",
-    116: "soccer_france_ligue_one",
+    56: "https://www.pinnacle.com/en/soccer/italy-serie-a/matchups/",  # Serie A
+    90: "https://www.pinnacle.com/en/soccer/germany-bundesliga/matchups/",  # Bundesliga
+    95: "https://www.pinnacle.com/en/soccer/england-premier-league/matchups/",  # EPL
+    29: "https://www.pinnacle.com/en/soccer/spain-la-liga/matchups/",  # La Liga
+    116: "https://www.pinnacle.com/en/soccer/france-ligue-1/matchups/",  # Ligue 1
 }
 
 GAMDOM_LEAGUES = {
@@ -48,6 +48,13 @@ GAMDOM_LEAGUES = {
     29: "https://api.gamdom.onebittech.com/api/partidos?IdInstanciaTorneo=29",
     116: "https://api.gamdom.onebittech.com/api/partidos?IdInstanciaTorneo=116",
 }
+
+# List of proxies for rotation (replace with real ones; test for speed)
+PROXIES = [
+    "http://1.2.3.4:8080",  # Example; get from free-proxy-list.net or paid
+    "http://5.6.7.8:3128",
+    # Add 10-20 more here
+]
 
 # ---------- helpers ----------
 def send_discord(msg):
@@ -145,42 +152,74 @@ def gamdom_feed():
     print(f"✅ Total Gamdom odds fetched: {len(all_odds)}")
     return all_odds
 
-def pinnacle_feed(league_id, market_type="h2h"):
-    """Fetch Pinnacle odds for a league and specific market (h2h, totals, btts)."""
-    sport_key = LEAGUE_MAP.get(league_id)
-    if not sport_key or not ODDSAPI_KEY:
+def pinnacle_feed(league_id):
+    """Scrape Pinnacle odds for a league illegally (free, no API key needed)."""
+    url = LEAGUE_MAP.get(league_id)
+    if not url:
         return {}
 
-    url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
-    params = {
-        "regions": "eu",
-        "markets": market_type,
-        "oddsFormat": "decimal",
-        "bookmakers": "pinnacle",
-        "apiKey": ODDSAPI_KEY
-    }
+    # Set up headless Chrome with anti-detection
+    ua = UserAgent()
+    options = ChromeOptions()
+    options.add_argument("--headless")  # No UI
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-images")  # Faster loading
+    options.add_argument(f"--user-agent={ua.random}")  # Rotate UA
+    options.add_argument("--window-size=1920,1080")
 
-    try:
-        resp = requests.get(url, params=params, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        print(f"❌ Pinnacle fetch error for {sport_key}: {e}")
-        return {}
+    # Rotate proxy (pick random from list)
+    proxy = random.choice(PROXIES) if PROXIES else None
+    if proxy:
+        options.add_argument(f"--proxy-server={proxy}")
 
+    driver = None
     sharp_odds = {}
-    for m in data:
-        home = normalize_team(m["home_team"])
-        away = normalize_team(m["away_team"])
-        for book in m.get("bookmakers", []):
-            if book["key"] != "pinnacle":
+    try:
+        driver = Chrome(options=options, driver_executable_path=ChromeDriverManager().install())
+        driver.get(url)
+        # Wait for odds to load (adjust timeout if site is slow)
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.CLASS_NAME, "event-row"))  # Pinnacle's matchup row class; inspect site if changes
+        )
+
+        # Parse the page (Pinnacle uses classes like .event-row for matches, .odds for prices)
+        from bs4 import BeautifulSoup  # Add this import at top if needed: from bs4 import BeautifulSoup
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        events = soup.find_all('div', class_='event-row')  # Container for each match
+
+        for event in events:
+            # Extract teams (adjust selectors based on Pinnacle's HTML; use browser inspect)
+            teams = event.find_all('span', class_='team-name')  # Example; real might be .participant-name
+            if len(teams) < 2:
                 continue
-            for market in book.get("markets", []):
-                if market["key"] != market_type:
-                    continue
-                for outcome in market.get("outcomes", []):
-                    key = (f"{home} vs {away}", outcome["name"])
-                    sharp_odds[key] = outcome["price"]
+            home_team = teams[0].text.strip()
+            away_team = teams[1].text.strip()
+
+            # Extract h2h odds (Pinnacle shows 3 odds: home, draw, away)
+            odds_elements = event.find_all('span', class_='odds')  # Adjust to real class (e.g., .price)
+            if len(odds_elements) < 3:
+                continue
+            home_odd = float(odds_elements[0].text.strip())
+            draw_odd = float(odds_elements[1].text.strip())  # We'll store draw too if needed
+            away_odd = float(odds_elements[2].text.strip())
+
+            # Normalize and store (focus on home/away for h2h; skip draw for now)
+            home_norm = normalize_team(home_team)
+            away_norm = normalize_team(away_team)
+            match_key = f"{home_norm} vs {away_norm}"
+            sharp_odds[(match_key, home_team)] = home_odd
+            sharp_odds[(match_key, away_team)] = away_odd
+
+    except Exception as e:
+        print(f"❌ Pinnacle scrape error for league {league_id}: {e}")
+    finally:
+        if driver:
+            driver.quit()
+
+    print(f"✅ Scraped {len(sharp_odds)} Pinnacle odds for league {league_id}")
     return sharp_odds
 
 # ---------- EV scan ----------
